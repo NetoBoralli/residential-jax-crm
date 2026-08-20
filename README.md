@@ -15,21 +15,25 @@ The CRM supports the full acquisition workflow: discovery → qualification → 
 ## Acceptance Criteria
 
 ### Core Data & Geography
+
 - Center the experience on Jacksonville / Duval County, Florida, consuming property, permit, ownership, location/coordinate, and related records produced by the continuous Duval County Oracle pipeline.
 - Support map display of Duval parcels / properties with key attributes (parcel ID / RE#, address, owner, assessed value, ownership history signals, roof-age indicators where available, coordinates).
 - Preserve source provenance for all displayed records.
 
 ### Search & Criteria Matching
+
 - Allow users to define and save target acquisition criteria (examples: ownership duration > N years, roof age > 15 years, specific geographic bounds or neighborhoods, assessed-value bands, water-view or transit proximity signals where available from the pipeline, and optional distressed signals).
 - Support quick interactive search: map radius or polygon, attribute filters, and natural-language queries via a RAG / agent interface (e.g., “show distressed residential properties in Arlington with roofs older than 15 years that have not sold in 10+ years”).
 - Surface matching properties in both map and list views with clear ranking or match-score rationale.
 
 ### Proactive Notifications
+
 - Enable saved searches / criteria sets that run against the continuous Duval pipeline on an ongoing basis.
 - Proactively notify the user (in-app alerts and/or mocked email / push) when new or updated properties match a saved criteria set.
 - Show notification history and the specific pipeline run / record change that triggered each alert.
 
 ### CRM Acquisition Workflow
+
 - Create and manage CRM records for properties, owners, and acquisition opportunities.
 - Track acquisition stages (e.g., Identified → Contacted → Negotiating → Under Contract → Closed / Dead).
 - Support mocked outreach channels (email, SMS, direct mail) with simulated lifecycle tracking (sent, delivered, replied, bounced, etc.).
@@ -37,17 +41,20 @@ The CRM supports the full acquisition workflow: discovery → qualification → 
 - Filter opportunities by criteria match strength, stage, geography, ownership signals, and (if implemented) court-data distress indicators.
 
 ### Optional Court-Data Enrichment
+
 - Optionally ingest or consume court-related public records (foreclosure filings, liens, probate, code-enforcement actions, etc.) relevant to Duval County residential properties.
 - Use court signals to enrich distress scoring and to surface additional candidate properties that may not yet appear in pure assessor / permit data.
 - Clearly attribute court-derived signals and preserve provenance.
 
 ### UX, Agent & Extensibility
+
 - Provide a clean map + list + detail UI for rapid review of candidates.
 - Support a RAG-backed agent for natural-language exploration of the Duval dataset and saved criteria results.
 - Export selected properties, owners, and opportunity records for downstream analysis or mailing.
 - Show (disabled / placeholder) sections for future expansion beyond the initial acquisition workflow (e.g., disposition, portfolio tracking, live messaging integrations).
 
 ### Demo & Integration Requirements
+
 - Demonstrate that the CRM is driven by real (or realistically mocked) continuous Duval pipeline data rather than a static one-time snapshot.
 - Demonstrate at least one end-to-end flow: define criteria → search → save criteria → simulate pipeline update → receive proactive notification → convert match into CRM opportunity → mock outreach → advance stage.
 - Confirm the candidate can operate the CRM without requiring Oracle to carry ongoing hosted-database cost beyond the existing Duval pipeline + DuckDB / Elephant IPFS pattern.

@@ -1,0 +1,19 @@
+# `railway up` does not honour .gitignore. Without this the CLI uploads the
+# whole working tree — including a ~350 MB node_modules — and the deploy fails
+# after "Uploading..." with no build log, which is indistinguishable from a
+# build error. Everything here is either reinstalled or rebuilt in the image.
+node_modules
+**/node_modules
+.next
+**/.next
+.turbo
+**/.turbo
+.git
+dist
+out
+data
+*.duckdb
+*.duckdb.wal
+*.parquet
+*.zip
+.review-crew-run
