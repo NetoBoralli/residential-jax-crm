@@ -1,0 +1,15 @@
+node_modules/
+.next/
+dist/
+out/
+.turbo/
+
+# Secrets — never commit
+.env
+.env.local
+.env.*.local
+*.pem
+
+# OS / editor
+.DS_Store
+*.log

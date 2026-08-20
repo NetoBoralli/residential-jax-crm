@@ -1,0 +1,24 @@
+{
+  "name": "jax-acquisition-crm",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Map-based residential property acquisition CRM for Jacksonville / Duval County, FL — consumes the continuous Duval Oracle pipeline over MCP.",
+  "packageManager": "pnpm@10.28.2",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "type-check": "turbo run type-check",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "prettier": "^3.4.2",
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.3"
+  }
+}
