@@ -3,6 +3,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { DuckDBConnection, DuckDBInstance } from "@duckdb/node-api";
 
+import { type Criteria, whereFor } from "./criteria";
+
 /**
  * The CRM's own store: a DuckDB file on the container volume.
  *
@@ -124,6 +126,19 @@ export async function nextId(prefix: string): Promise<string> {
  * should not have to create three users before anything works.
  */
 async function seed(conn: DuckDBConnection): Promise<void> {
+  await seedUsers(conn);
+  await seedStarterSearches(conn);
+}
+
+/**
+ * Each seed guards on its own table.
+ *
+ * A single "is the database empty" check would mean that anything added later
+ * never appears on a volume that already has rows — which is exactly what
+ * happened the first time: the starter criteria were added after the deployed
+ * volume already had users, so they silently never seeded.
+ */
+async function seedUsers(conn: DuckDBConnection): Promise<void> {
   const reader = await conn.runAndReadAll(`SELECT count(*) AS n FROM users`);
   if (Number(reader.getRowObjects()[0]?.["n"] ?? 0) > 0) return;
 
@@ -135,6 +150,58 @@ async function seed(conn: DuckDBConnection): Promise<void> {
     await conn.run(
       `INSERT INTO users (user_id, name, role) VALUES (${lit(id)}, ${lit(name)}, ${lit(role)})`,
     );
+  }
+}
+
+async function seedStarterSearches(conn: DuckDBConnection): Promise<void> {
+  const reader = await conn.runAndReadAll(
+    `SELECT count(*) AS n FROM saved_searches`,
+  );
+  if (Number(reader.getRowObjects()[0]?.["n"] ?? 0) > 0) return;
+
+  // Two starter criteria sets, so a first-time visitor lands on a working
+  // product rather than on an empty state with a "create your first…" prompt.
+  //
+  // These are templates and nothing more. No alert, opportunity or match is
+  // seeded — those are computed against real pipeline runs when the sweep
+  // runs, because a fabricated alert would be the one thing on this page that
+  // could not be traced back to evidence.
+  const starters: Array<[string, string, Record<string, unknown>]> = [
+    [
+      "Long-held homes, aging roofs, absentee owners",
+      "The classic acquisition profile: held a decade or more, a roof at or past its service life, and an owner who does not live there.",
+      {
+        tenureYearsMin: 10,
+        roofAgeMin: 15,
+        ownerRegion: "out_of_state",
+        valueMax: 400000,
+        residentialOnly: true,
+      },
+    ],
+    [
+      "Waterfront, long tenure, small portfolio owners",
+      "Waterfront parcels held a long time by owners who are not large portfolio holders — the ones most likely to answer a letter.",
+      {
+        water: "waterfront",
+        tenureYearsMin: 10,
+        residentialOnly: true,
+      },
+    ],
+  ];
+
+  for (const [name, description, criteria] of starters) {
+    const id = `search-${name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .slice(0, 40)
+      .replace(/-$/, "")}`;
+    await conn.run(`
+      INSERT INTO saved_searches
+        (search_id, name, description, where_sql, criteria_json, owner_id, notify)
+      VALUES (${lit(id)}, ${lit(name)}, ${lit(description)},
+              ${lit(whereFor(criteria as Criteria))}, ${lit(JSON.stringify(criteria))},
+              'u-dana', true)
+    `);
   }
 }
 
