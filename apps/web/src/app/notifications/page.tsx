@@ -155,7 +155,7 @@ export default async function NotificationsPage({
         </div>
       ) : (
         <div style={{ marginTop: 24 }}>
-          {alerts.map((a) => {
+          {alerts.map((a, index) => {
             const rows = byAlert.get(a.notification_id) ?? [];
             return (
               <section
@@ -215,84 +215,109 @@ export default async function NotificationsPage({
                 </p>
 
                 {rows.length ? (
-                  <table style={{ marginTop: 14 }} data-testid="alert-matches">
-                    <thead>
-                      <tr>
-                        <th>Property</th>
-                        <th>Owner</th>
-                        <th className="num">Just value</th>
-                        <th>Change</th>
-                        <th></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.map((m) => (
-                        <tr key={`${m.notification_id}-${m.folio}`}>
-                          <td>
-                            <Link
-                              href={`/properties/${encodeURIComponent(m.folio)}`}
-                            >
-                              {m.address ?? m.folio}
-                            </Link>
-                            <div className="subtle mono">{m.folio}</div>
-                          </td>
-                          <td>{m.owner_name ?? "—"}</td>
-                          <td className="num">{money(m.market_value)}</td>
-                          <td>
-                            <span className="badge badge-info">
-                              {m.delta_type}
-                            </span>
-                          </td>
-                          <td>
-                            <form action={convertAction}>
-                              <input
-                                type="hidden"
-                                name="folio"
-                                value={m.folio}
-                              />
-                              <input
-                                type="hidden"
-                                name="address"
-                                value={m.address ?? ""}
-                              />
-                              <input
-                                type="hidden"
-                                name="owner_name"
-                                value={m.owner_name ?? ""}
-                              />
-                              <input
-                                type="hidden"
-                                name="search_id"
-                                value={a.search_id}
-                              />
-                              <input
-                                type="hidden"
-                                name="run_id"
-                                value={a.run_id}
-                              />
-                              <button
-                                className="btn btn-secondary"
-                                type="submit"
-                                data-testid="convert-from-alert"
-                              >
-                                Track
-                              </button>
-                            </form>
-                          </td>
+                  // A native <details>, not a client component. It needs no
+                  // JavaScript, it is keyboard-operable for free, and its
+                  // contents stay in the DOM when collapsed — so curl and an
+                  // automated reviewer still see every row even when a human
+                  // sees a closed panel.
+                  //
+                  // The newest alert is open so the page shows its evidence
+                  // without a click; the rest are collapsed unless short enough
+                  // to read at a glance. One alert with fifty matched
+                  // properties used to bury the five alerts beneath it.
+                  <details
+                    className="accordion"
+                    open={index === 0 || rows.length <= 3}
+                    style={{ marginTop: 14 }}
+                  >
+                    <summary data-testid="alert-matches-toggle">
+                      <span>
+                        {num(rows.length)} captured{" "}
+                        {rows.length === 1 ? "property" : "properties"}
+                      </span>
+                      {rows.length < Number(a.matched_count) ? (
+                        <span className="subtle">
+                          of {num(a.matched_count)} that matched
+                        </span>
+                      ) : null}
+                    </summary>
+                    <table data-testid="alert-matches">
+                      <thead>
+                        <tr>
+                          <th>Property</th>
+                          <th>Owner</th>
+                          <th className="num">Just value</th>
+                          <th>Change</th>
+                          <th></th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                ) : null}
-                {rows.length < Number(a.matched_count) ? (
-                  <p className="subtle" style={{ marginTop: 8 }}>
-                    All {num(rows.length)} captured{" "}
-                    {rows.length === 1 ? "property is" : "properties are"}{" "}
-                    listed above, out of {num(a.matched_count)} that matched in
-                    this run. The Oracle caps how many matched rows an alert
-                    captures as evidence; the full set is reachable from the
-                    criteria set.
-                  </p>
+                      </thead>
+                      <tbody>
+                        {rows.map((m) => (
+                          <tr key={`${m.notification_id}-${m.folio}`}>
+                            <td>
+                              <Link
+                                href={`/properties/${encodeURIComponent(m.folio)}`}
+                              >
+                                {m.address ?? m.folio}
+                              </Link>
+                              <div className="subtle mono">{m.folio}</div>
+                            </td>
+                            <td>{m.owner_name ?? "—"}</td>
+                            <td className="num">{money(m.market_value)}</td>
+                            <td>
+                              <span className="badge badge-info">
+                                {m.delta_type}
+                              </span>
+                            </td>
+                            <td>
+                              <form action={convertAction}>
+                                <input
+                                  type="hidden"
+                                  name="folio"
+                                  value={m.folio}
+                                />
+                                <input
+                                  type="hidden"
+                                  name="address"
+                                  value={m.address ?? ""}
+                                />
+                                <input
+                                  type="hidden"
+                                  name="owner_name"
+                                  value={m.owner_name ?? ""}
+                                />
+                                <input
+                                  type="hidden"
+                                  name="search_id"
+                                  value={a.search_id}
+                                />
+                                <input
+                                  type="hidden"
+                                  name="run_id"
+                                  value={a.run_id}
+                                />
+                                <button
+                                  className="btn btn-secondary"
+                                  type="submit"
+                                  data-testid="convert-from-alert"
+                                >
+                                  Track
+                                </button>
+                              </form>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {rows.length < Number(a.matched_count) ? (
+                      <p className="subtle" style={{ marginTop: 10 }}>
+                        The Oracle caps how many matched rows an alert captures
+                        as evidence, so these {num(rows.length)} are a sample of
+                        the {num(a.matched_count)} that matched in this run. The
+                        full set is reachable from the criteria set.
+                      </p>
+                    ) : null}
+                  </details>
                 ) : null}
               </section>
             );
