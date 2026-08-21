@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { DuckDBInstance } from "@duckdb/node-api";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 /**
  * Migrations must be safe on an old volume and on a fresh one.
@@ -104,5 +104,36 @@ describe("migrations", () => {
         await conn.runAndReadAll(`SELECT count(*) AS n FROM notifications`)
       ).getRowObjects()[0]?.["n"],
     ).toBe(1n);
+  });
+});
+
+describe("recovery from a damaged store", () => {
+  it("opens a new store when the file cannot be read, and keeps the old one", async () => {
+    const recoveryDir = fs.mkdtempSync(path.join(os.tmpdir(), "crm-recover-"));
+    const file = path.join(recoveryDir, "jax-crm.duckdb");
+
+    // A file DuckDB cannot open at all — the same class of failure as a WAL it
+    // refuses to replay after a container is killed mid-write.
+    fs.writeFileSync(file, "this is not a duckdb database");
+
+    process.env["CRM_DATA_DIR"] = recoveryDir;
+    vi.resetModules();
+    const { db } = await import("./db");
+
+    // The app comes back up rather than failing every request.
+    const conn = await db();
+    const rows = (
+      await conn.runAndReadAll(`SELECT count(*) AS n FROM saved_searches`)
+    ).getRowObjects();
+    expect(Number(rows[0]?.["n"])).toBeGreaterThan(0);
+
+    // Nothing was destroyed — the damaged file is quarantined, not deleted.
+    const quarantined = fs
+      .readdirSync(recoveryDir)
+      .filter((f) => f.includes(".corrupt-"));
+    expect(quarantined.length).toBe(1);
+    expect(
+      fs.readFileSync(path.join(recoveryDir, quarantined[0]!), "utf8"),
+    ).toBe("this is not a duckdb database");
   });
 });

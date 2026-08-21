@@ -66,22 +66,84 @@ export const MIGRATIONS = [
     )`,
 ];
 
-async function open(): Promise<DuckDBConnection> {
+/**
+ * Open the store, recovering from a write-ahead log the engine cannot replay.
+ *
+ * A container killed mid-write — which is every redeploy — can leave a WAL that
+ * DuckDB refuses to replay on the next boot, and the process then fails every
+ * request with an internal error. That is the honest cost of a file on a volume
+ * and ADR 001 now says so.
+ *
+ * Recovery is possible here specifically because this store holds workspace
+ * state and nothing irreplaceable: the criteria sets are seeded and the alerts
+ * are recomputed from published pipeline runs in one call. The damaged files
+ * are moved aside rather than deleted, so nothing is destroyed and the failure
+ * can still be examined, and the app comes back up instead of staying down.
+ */
+async function openOrRecover(): Promise<DuckDBConnection> {
   fs.mkdirSync(DATA_DIR, { recursive: true });
-  const instance = await DuckDBInstance.create(DB_FILE);
+  try {
+    return await openAt(DB_FILE);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    for (const suffix of ["", ".wal"]) {
+      const from = `${DB_FILE}${suffix}`;
+      if (fs.existsSync(from)) {
+        fs.renameSync(from, `${from}.corrupt-${stamp}`);
+      }
+    }
+    console.error(
+      `[crm-db] Could not open ${DB_FILE}: ${reason}\n` +
+        `[crm-db] Moved it aside as ${DB_FILE}.corrupt-${stamp} and started a new store. ` +
+        `Saved criteria reseed automatically; re-run /api/alerts/check to recompute alerts. ` +
+        `Opportunities and outreach recorded in the damaged file are not recovered.`,
+    );
+    return openAt(DB_FILE);
+  }
+}
+
+async function openAt(file: string): Promise<DuckDBConnection> {
+  const instance = await DuckDBInstance.create(file);
   const conn = await instance.connect();
 
   for (const stmt of statements(readSchema())) await conn.run(stmt);
   for (const stmt of MIGRATIONS) await conn.run(stmt);
 
   await seed(conn);
+  closeOnShutdown(instance, conn);
   return conn;
+}
+
+/**
+ * Close cleanly on SIGTERM so a redeploy does not leave a WAL behind.
+ *
+ * This makes the recovery path above rare rather than routine. Railway sends
+ * SIGTERM before SIGKILL, which is enough time to checkpoint.
+ */
+let shutdownHooked = false;
+function closeOnShutdown(
+  instance: DuckDBInstance,
+  conn: DuckDBConnection,
+): void {
+  if (shutdownHooked) return;
+  shutdownHooked = true;
+  const close = () => {
+    try {
+      conn.closeSync();
+      instance.closeSync();
+    } catch {
+      // Shutting down anyway; a failure here has nowhere useful to go.
+    }
+  };
+  process.once("SIGTERM", close);
+  process.once("SIGINT", close);
 }
 
 export async function db(): Promise<DuckDBConnection> {
   if (connection) return connection;
   if (!opening) {
-    opening = open().then((c) => {
+    opening = openOrRecover().then((c) => {
       connection = c;
       return c;
     });

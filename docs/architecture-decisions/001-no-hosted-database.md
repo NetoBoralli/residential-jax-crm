@@ -46,9 +46,21 @@ constraint we state rather than one we hide. The Railway service is pinned to
 one instance for this reason.
 
 **Durability.** The volume persists across deploys and restarts. It is not
-replicated, and there is no point-of-time recovery. For a workspace whose
-authoritative property data is content-addressed elsewhere and re-readable at
-any time, losing CRM state would be painful but not corrupting.
+replicated, and there is no point-in-time recovery.
+
+It is also not free of failure modes, and one of them showed up in practice: a
+container killed mid-write leaves a write-ahead log, and DuckDB can refuse to
+replay it on the next boot — after which the process fails every request with
+an internal error. A hosted database would have handled that for us. The app
+now closes cleanly on SIGTERM so it is rare, and if it happens anyway the
+damaged files are moved aside and a new store is opened, loudly.
+
+That recovery is only acceptable because of what this store holds. Criteria sets
+reseed; alerts recompute from published pipeline runs in a single call; the
+authoritative property data was never here. Opportunities, notes and outreach
+would be lost, and for a team that had been working deals in it that is a real
+loss — which is the honest argument for moving to Postgres the moment this
+stops being one team's workspace.
 
 **The migration path, if it is ever needed.** Every query goes through
 `src/lib/db.ts` and every mutation through the service modules in `src/lib/`.
