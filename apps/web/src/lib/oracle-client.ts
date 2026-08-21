@@ -178,11 +178,20 @@ export function queryProperties(
 
 export interface DatasetInfo {
   county: string;
-  ipnsName: string;
-  cid: string;
-  cidUrl: string;
-  resolvedFrom: string;
-  counts: Record<string, number>;
+  countyName?: string;
+  stateCode?: string;
+  view?: string;
+  /** The Oracle's own field name. Calling it `counts` here made every read of
+   *  it undefined, and the index signature meant the compiler never said so —
+   *  the dashboard's headline number rendered as a dash. */
+  totals: Record<string, number>;
+  pointer?: {
+    ipnsName: string;
+    ipnsUrl: string;
+    cid: string;
+    cidUrl: string;
+    resolvedFrom: string;
+  };
   [key: string]: unknown;
 }
 

@@ -66,7 +66,20 @@ export async function saveSearch(input: {
   return id;
 }
 
+/**
+ * Deletes the criteria set and everything that only exists because of it.
+ *
+ * An alert's whole value is that it names the criteria it matched; orphaned, it
+ * renders a raw id linking to a 404. There is no foreign key to cascade for us
+ * — DuckDB does not enforce them — so the cascade is explicit, innermost first.
+ */
 export async function deleteSearch(id: string): Promise<void> {
+  await run(`
+    DELETE FROM notification_matches
+     WHERE notification_id IN (
+       SELECT notification_id FROM notifications WHERE search_id = ${lit(id)}
+     )`);
+  await run(`DELETE FROM notifications WHERE search_id = ${lit(id)}`);
   await run(`DELETE FROM saved_searches WHERE search_id = ${lit(id)}`);
 }
 

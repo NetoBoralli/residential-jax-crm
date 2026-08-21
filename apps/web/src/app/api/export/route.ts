@@ -20,10 +20,11 @@ function csv(rows: Array<Record<string, unknown>>, columns: string[]): string {
     if (v === null || v === undefined) return "";
     let s = String(v);
     // Owner names come from a public roll and go into a file someone opens in
-    // Excel. A leading =, +, - or @ makes the cell a formula there, so it is
-    // prefixed to keep it text. Costs a quote mark; avoids a spreadsheet that
-    // executes a county record.
-    if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+    // Excel, where a leading =, +, - or @ makes the cell a formula. But a
+    // leading "-" followed by a digit is a negative number — guarding it
+    // corrupted every longitude in the county into text, which is the one
+    // column a mapping tool needs.
+    if (/^[=+@\t\r]/.test(s) || /^-(?![0-9.])/.test(s)) s = `'${s}`;
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   return [
@@ -41,10 +42,24 @@ function download(body: string, filename: string): Response {
   });
 }
 
+const EXPORT_TYPES = ["opportunities", "owners", "notifications"] as const;
+
 export async function GET(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const type = url.searchParams.get("type") ?? "opportunities";
   const stage = url.searchParams.get("stage") ?? undefined;
+
+  // An unknown type used to fall through to the opportunities export, so a
+  // typo produced a plausible-looking file of the wrong thing.
+  if (!(EXPORT_TYPES as readonly string[]).includes(type)) {
+    return Response.json(
+      {
+        error: `Unknown export type "${type}".`,
+        available: EXPORT_TYPES,
+      },
+      { status: 400 },
+    );
+  }
 
   if (type === "notifications") {
     const rows = await all(`

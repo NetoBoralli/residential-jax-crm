@@ -86,8 +86,10 @@ export default async function PropertiesPage({
       <h1>Find properties</h1>
       <p className="lede">
         Criteria run against the live Duval dataset through the Oracle&rsquo;s
-        MCP surface. Every row carries a match score and the clauses that earned
-        it, so you can disagree with the ranking rather than trust it.
+        MCP surface. Everything listed meets every criterion you set — the
+        signal score ranks how far past your thresholds each one sits, and the
+        clauses beneath it say why, so you can disagree with the ranking rather
+        than trust it.
       </p>
 
       <form

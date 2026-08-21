@@ -69,10 +69,13 @@ export function when(value: unknown): string {
 }
 
 /**
- * A match score with the reasons behind it.
+ * Signal strength, with the reasons behind it.
  *
- * The number alone is not useful to an acquisitions analyst — "87" tells them
- * nothing they can act on or argue with. The clauses are the product.
+ * Deliberately not labelled "% match". Everything in a result set matches every
+ * criterion by construction, so a match percentage is 100 on every row and
+ * tells an analyst nothing. This is how far past the thresholds a property
+ * sits — a priority order within the matched set — and the clauses underneath
+ * are the part that is actually actionable.
  */
 export function MatchScore({
   score,
@@ -83,11 +86,15 @@ export function MatchScore({
   rationale: string[];
   testId?: string;
 }) {
-  const tone = score >= 80 ? "ok" : score >= 50 ? "warn" : "muted";
+  const tone = score >= 60 ? "ok" : score >= 30 ? "warn" : "muted";
   return (
     <div data-testid={testId}>
-      <span className={`badge badge-${tone}`} data-testid="match-score">
-        {score}% match
+      <span
+        className={`badge badge-${tone}`}
+        data-testid="match-score"
+        title="Signal strength within the matched set — every property listed already meets every criterion."
+      >
+        signal {score}/100
       </span>
       {rationale.length ? (
         <div

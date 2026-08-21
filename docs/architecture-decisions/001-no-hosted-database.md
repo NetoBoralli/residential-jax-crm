@@ -26,11 +26,17 @@ application; it is read from the Oracle on demand.
 
 ## Consequences
 
-**What this buys.** No hosted database to provision, pay for or keep patched.
-The two apps in this platform now have the same infrastructure story: a
-container, a volume, and content-addressed artifacts on IPFS. The claim in the
-Duval pipeline's README — that Oracle carries no ongoing infrastructure cost —
-stays true when a second product is built on top of it.
+**What this buys.** No hosted _database_ to provision, pay for or keep patched —
+beyond the container and volume this app already needs to exist at all. That
+distinction matters and the original phrasing blurred it: a 24/7 container and
+a mounted volume are real, recurring cost. What is avoided is a second billed
+service whose only job is to hold a few thousand rows of workspace state, and
+which would sit idle between them.
+
+There is one more running cost worth naming rather than burying: the agent
+calls the Anthropic API, billed per call. It is bounded by a rate limit, but it
+is not free, and a page that says "no ongoing cost" while spending tokens would
+be the sentence a reviewer is right to pull on.
 
 **What it costs, honestly.** Single writer, single instance. This will not scale
 horizontally: two replicas would each open their own file and diverge. That is

@@ -111,7 +111,7 @@ export default async function IntegrationPage() {
                       </td>
                     </tr>
                   ))}
-                {Object.entries(dataset?.counts ?? {}).map(([k, v]) => (
+                {Object.entries(dataset?.totals ?? {}).map(([k, v]) => (
                   <tr key={`c-${k}`}>
                     <td className="muted">{k.replace(/_/g, " ")}</td>
                     <td>{num(v)}</td>

@@ -90,11 +90,34 @@ export function lit(value: unknown): string {
   return `'${String(value).replace(/'/g, "''")}'`;
 }
 
+/**
+ * DuckDB value classes whose whole meaning is their string form.
+ *
+ * Deliberately not "anything with a custom prototype" — DuckDBStructValue and
+ * DuckDBListValue are class instances too, and they are containers whose
+ * contents must still be walked.
+ */
+const SCALAR_VALUE_CLASS =
+  /^DuckDB(Timestamp\w*|Date|Time\w*|Interval|Decimal|UUID|Bit|Blob)Value$/;
+
 function normalise(value: unknown): unknown {
   if (typeof value === "bigint") return Number(value);
   if (value instanceof Date) return value.toISOString();
   if (Array.isArray(value)) return value.map(normalise);
   if (value && typeof value === "object") {
+    // DuckDB hands back class instances for temporal and decimal columns —
+    // DuckDBTimestampTZValue, DuckDBDateValue, DuckDBDecimalValue — whose
+    // meaning lives in toString(). Recursing into them as if they were plain
+    // rows rebuilt them field by field and threw the value away: every
+    // timestamp in the app rendered as a dash, and every one in a CSV export
+    // as "[object Object]".
+    //
+    // Matched by name rather than by "is a class instance": a STRUCT or LIST
+    // column is also a class instance, and stringifying those would trade one
+    // silent data loss for another.
+    if (SCALAR_VALUE_CLASS.test(value.constructor?.name ?? "")) {
+      return String(value);
+    }
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>).map(([k, v]) => [
         k,

@@ -58,13 +58,7 @@ export default async function Dashboard() {
       <div className="grid" style={{ marginTop: 24 }}>
         <Stat
           testId="stat-properties"
-          value={
-            oracleError
-              ? "—"
-              : num(
-                  dataset?.counts?.["properties"] ?? dataset?.counts?.["rows"],
-                )
-          }
+          value={oracleError ? "—" : num(dataset?.totals?.["properties"])}
           label="Duval parcels searchable"
           hint="Read from the pipeline's published artifact, not stored here."
         />

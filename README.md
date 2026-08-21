@@ -91,3 +91,84 @@ The CRM supports the full acquisition workflow: discovery → qualification → 
 - [Duval County Oracle Pipeline](https://github.com/prismteam-ai/oracle-property-intelligence-platform-pipeline-duval-fl) — continuous / incremental source of property, permit, ownership, and location data; publishes to Elephant IPFS.
 - [Soofi XYZ Team Kit](https://github.com/soofi-xyz/soofi-xyz-team-kit)
 - [Elephant Oracle Skills](https://github.com/elephant-xyz/skills)
+
+---
+
+# Implementation
+
+_Everything above is the assignment. Everything below is what was built for it._
+
+## Live
+
+|                                                                     |                                                     |
+| ------------------------------------------------------------------- | --------------------------------------------------- |
+| **CRM**                                                             | https://crm-web-production-32c5.up.railway.app      |
+| **Data source** (the Duval Oracle pipeline, a separate submission)  | https://oracle-web-production-1976.up.railway.app   |
+| **Guided demo** — the required end-to-end flow as twelve deep links | https://crm-web-production-32c5.up.railway.app/demo |
+
+Both are public. There is no login, no credential, and nothing to install.
+
+## The one idea
+
+This CRM stores **no Duval County property data**. Not one column. It keeps
+workspace state — saved criteria, alerts, opportunities, outreach, notes, tasks
+— and references properties by folio. Every property fact on every page is read
+live from the Oracle pipeline's MCP surface.
+
+That is not architectural tidiness; it is the thing that keeps the two systems
+from disagreeing. Roof age is derived from effective year built. Tenure falls
+back to the Florida assessment-cap differential for the ~87% of parcels with no
+recorded sale. "Waterfront" means proximity to a named water body, not a view.
+A CRM that read the published Parquet directly would have to re-implement all of
+that, and the first time either side moved a threshold the two would quietly
+start disagreeing about which properties are waterfront — with no error and no
+way to tell which was right.
+
+See [`docs/access-boundaries.md`](docs/access-boundaries.md) for how the
+boundary is enforced (one transport module, a runtime `fetch` guard, and a test
+that asserts the guard fires) and for its honest limits.
+
+## Running it
+
+```bash
+pnpm install
+pnpm --filter @jax-crm/web dev      # http://localhost:3000
+```
+
+| Variable            | Required          | Default             | What it does                                                                                                        |
+| ------------------- | ----------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `ORACLE_MCP_URL`    | no                | the deployed Oracle | Where Duval data is read from. Point it at a local Oracle to develop against one.                                   |
+| `CRM_DATA_DIR`      | no                | `/data`             | Where the CRM's own DuckDB file lives. On Railway this is the mounted volume; locally, set it to anything writable. |
+| `ANTHROPIC_API_KEY` | for `/agent` only | —                   | The natural-language agent. Every other page works without it.                                                      |
+
+```bash
+pnpm test            # unit + integration; the live suite skips itself
+pnpm type-check
+pnpm format:check
+
+# The end-to-end suite talks to a real Oracle, so it is opt-in and refuses to
+# run against a store that already has data:
+ORACLE_MCP_URL=https://oracle-web-production-1976.up.railway.app/mcp \
+CRM_DATA_DIR=/tmp/crm-e2e pnpm --filter @jax-crm/web test
+```
+
+## Deployment
+
+A container built by GitHub Actions to GHCR, pulled by Railway, with a volume
+mounted at `/data`. [`railway.json`](railway.json) pins the deploy config —
+including `numReplicas: 1`, which
+[ADR 001](docs/architecture-decisions/001-no-hosted-database.md) depends on:
+the store is a single-writer file, and a second replica would diverge.
+
+## Design notes
+
+- **[ADR 001 — the CRM runs on a file, not a hosted database](docs/architecture-decisions/001-no-hosted-database.md).** What that buys, and what it costs, stated rather than hidden.
+- **[Access boundaries](docs/access-boundaries.md).** How Duval data is consumed, and why reaching around it would be worse than slower.
+
+## What is deliberately not built
+
+Court-data distress signals, disposition and portfolio tracking, and live
+messaging integrations. Each is marked on the dashboard with the reason it was
+cut rather than stubbed. Outreach is simulated end to end and labelled as such
+everywhere it renders; the per-channel lifecycles still differ, because a posted
+letter genuinely has no delivery receipt and cannot be "opened".

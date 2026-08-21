@@ -49,6 +49,14 @@ error, not a network condition, so the offending call belongs at the top of the
 stack. It is a hard failure rather than a warning because a warning gets ignored
 under deadline, and the first direct read quietly becomes permanent.
 
+Note the shape of the guard, and its limits. It is a **denylist**, not an
+allowlist: `ipfs.io` and `dweb.link` serve the identical artifact and are not
+blocked, and it wraps `fetch` only, so a direct `node:http` request would pass.
+Both are deliberate — an allowlist would break the CARTO basemap tiles and the
+Anthropic API, and this app makes exactly two outbound calls, both through
+`oracle-client.ts`. The guard is there to make an accidental shortcut fail
+loudly, not to contain an adversary who controls the code.
+
 **3. A test.** `src/lib/access-boundary.test.ts` asserts the guard fires for
 each blocked host and for subdomains of them, and that it leaves the sanctioned
 endpoint and unrelated hosts alone. The boundary is covered by a test rather

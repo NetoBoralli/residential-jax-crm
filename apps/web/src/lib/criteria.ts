@@ -46,6 +46,26 @@ export interface Facet {
   columns: string[];
   /** Did this row satisfy it, and how would you say so in one clause? */
   explain: (row: Record<string, unknown>) => string | undefined;
+  /**
+   * How *strongly* this row satisfies the facet, 0–1.
+   *
+   * Every row returned by a search already passes the hard filter, so a score
+   * built only from pass/fail is 100% on every row and ranks nothing — which
+   * is exactly what it did. Facets with a magnitude grade it: a roof of 51
+   * years is a stronger signal than one of 16 when you asked for over 15, and a
+   * parcel 40 m from the water is stronger than one at 59 m. Facets that are
+   * genuinely binary — the city matches, or it does not — return 1 and simply
+   * do not discriminate, which is honest rather than padded.
+   */
+  strength?: (row: Record<string, unknown>) => number;
+}
+
+/** Map a value onto 0–1 by where it sits between the threshold and a ceiling. */
+function ramp(value: number | undefined, from: number, to: number): number {
+  if (value === undefined) return 0;
+  if (to === from) return 1;
+  const t = (value - from) / (to - from);
+  return Math.max(0, Math.min(1, t));
 }
 
 const n = (v: unknown): number | undefined => {
@@ -75,7 +95,12 @@ export function facetsFor(c: Criteria): Facet[] {
       // The Oracle exposes both a recorded-sale age and a banded proxy for the
       // ~87% of parcels with no sale in the current roll; accept either.
       sql: `(years_since_last_sale >= ${years} OR tenure_class IN ('held_10_plus_years','likely_held_10_plus_years'))`,
-      columns: ["years_since_last_sale", "tenure_class", "tenure_basis"],
+      columns: [
+        "years_since_last_sale",
+        "tenure_class",
+        "tenure_basis",
+        "assessment_differential_ratio",
+      ],
       explain: (r) => {
         const y = n(r["years_since_last_sale"]);
         if (y !== undefined && y >= years) return `held ${Math.round(y)} years`;
@@ -85,6 +110,15 @@ export function facetsFor(c: Criteria): Facet[] {
         if (cls === "likely_held_10_plus_years")
           return "likely held 10+ years (assessment-cap proxy)";
         return undefined;
+      },
+      // Longer tenure is a stronger signal, saturating 20 years past the
+      // threshold. Where no sale is recorded the assessment gap stands in — it
+      // widens with every year a parcel goes untransferred.
+      strength: (r) => {
+        const y = n(r["years_since_last_sale"]);
+        if (y !== undefined) return ramp(y, years, years + 20);
+        const gap = n(r["assessment_differential_ratio"]);
+        return gap !== undefined ? ramp(gap, 0, 0.35) : 0.5;
       },
     });
   }
@@ -103,6 +137,9 @@ export function facetsFor(c: Criteria): Facet[] {
           ? `roof ~${Math.round(y)} years (derived from ${String(r["roof_age_basis"] ?? "year built")})`
           : undefined;
       },
+      // Saturates 25 years past the threshold — a 90-year-old roof is not
+      // twice the opportunity of a 45-year-old one, and both are past due.
+      strength: (r) => ramp(n(r["roof_age_years"]), years, years + 25),
     });
   }
 
@@ -123,6 +160,10 @@ export function facetsFor(c: Criteria): Facet[] {
         const name = r["nearest_water_name"];
         return `${Math.round(d ?? 0)} m from ${name ? String(name) : "water"}`;
       },
+      strength: (r) => {
+        const d = n(r["dist_to_water_m"]);
+        return d === undefined ? 0 : 1 - ramp(d, 0, proximate ? 150 : 60);
+      },
     });
   }
 
@@ -140,6 +181,7 @@ export function facetsFor(c: Criteria): Facet[] {
           ? `${Math.round(d)} m to transit`
           : undefined;
       },
+      strength: (r) => 1 - ramp(n(r["dist_to_transit_m"]), 0, m),
     });
   }
 
@@ -157,6 +199,7 @@ export function facetsFor(c: Criteria): Facet[] {
           ? `${Math.round(d)} m to a Starbucks`
           : undefined;
       },
+      strength: (r) => 1 - ramp(n(r["dist_to_starbucks_m"]), 0, m),
     });
   }
 
@@ -243,6 +286,8 @@ export function facetsFor(c: Criteria): Facet[] {
           ? `owner holds ${p} Duval parcels`
           : undefined;
       },
+      // A larger portfolio means a more practised seller and a bigger prize.
+      strength: (r) => ramp(n(r["owner_portfolio_size"]), k, k + 8),
     });
   }
 
@@ -286,10 +331,33 @@ export function whereFor(c: Criteria): string {
 }
 
 export interface Scored {
+  /**
+   * Signal strength, 0–100. NOT "percent of criteria met".
+   *
+   * Every property in a result set already meets every criterion — the filter
+   * is a hard AND — so a percentage-of-criteria score is 100 on every row and
+   * ranks nothing. This grades how far past each threshold a property sits, so
+   * it is a priority order within the matched set. A low number does not mean
+   * a weak match; it means a match that only just qualifies.
+   */
   score: number;
   rationale: string[];
 }
 
+/**
+ * Score a property against the criteria that returned it.
+ *
+ * A search applies its criteria as a hard filter, so every row here already
+ * satisfies all of them. Scoring on pass/fail therefore gave 100% to every row
+ * and ranked nothing — the list was really ordered by just value with a
+ * decorative badge attached. The score now grades *how strongly* each facet is
+ * satisfied, so a 51-year roof outranks a 16-year one and a parcel 12 m from
+ * the river outranks one at 58 m.
+ *
+ * Facets with no magnitude (city, owner locality) contribute their full weight
+ * without discriminating, which is the honest treatment: they are satisfied,
+ * and there is no "more satisfied".
+ */
 export function score(c: Criteria, row: Record<string, unknown>): Scored {
   const facets = facetsFor(c);
   if (facets.length === 0) return { score: 0, rationale: [] };
@@ -300,10 +368,10 @@ export function score(c: Criteria, row: Record<string, unknown>): Scored {
   for (const f of facets) {
     total += f.weight;
     const why = f.explain(row);
-    if (why) {
-      earned += f.weight;
-      rationale.push(why);
-    }
+    if (!why) continue;
+    rationale.push(why);
+    const strength = f.strength ? f.strength(row) : 1;
+    earned += f.weight * Math.max(0, Math.min(1, strength));
   }
   return { score: Math.round((earned / total) * 100), rationale };
 }
