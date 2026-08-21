@@ -81,11 +81,23 @@ describe("register", () => {
     ).toThrow(AccessBoundaryViolation);
   });
 
-  it("still lets the sanctioned endpoint through after wrapping", () => {
+  it("passes an allowed request through to the underlying fetch", async () => {
+    // Stubbed rather than real: the assertion is that the wrapper delegates,
+    // and a live request would make this test depend on the network.
+    const calls: string[] = [];
+    globalThis.fetch = ((input: RequestInfo | URL) => {
+      calls.push(String(input));
+      return Promise.resolve(new Response("ok"));
+    }) as typeof fetch;
+
     register();
-    // Guard passes; the call then fails on DNS, which is a different error.
-    expect(() => fetch("https://oracle.invalid.test/mcp")).not.toThrow(
-      AccessBoundaryViolation,
+    const res = await fetch(
+      "https://oracle-web-production-1976.up.railway.app/mcp",
     );
+
+    expect(await res.text()).toBe("ok");
+    expect(calls).toEqual([
+      "https://oracle-web-production-1976.up.railway.app/mcp",
+    ]);
   });
 });

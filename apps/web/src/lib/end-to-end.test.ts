@@ -118,10 +118,10 @@ describe.skipIf(!LIVE)("acquisition flow, end to end", () => {
     const again = await checkSearchAgainstRun(search!, runId);
     expect(again.alreadySeen).toBe(true);
 
-    const [{ n }] = await all<{ n: number }>(
+    const [row] = await all<{ n: number }>(
       `SELECT count(*) AS n FROM notifications WHERE search_id = '${searchId}' AND run_id = '${runId}'`,
     );
-    expect(Number(n)).toBe(1);
+    expect(Number(row?.n)).toBe(1);
   });
 
   it("converts a matched property into a tracked opportunity", async () => {
