@@ -36,6 +36,8 @@ export interface AgentAnswer {
   steps: AgentStep[];
   durationMs: number;
   model: string;
+  /** Set when the agent stopped without writing an answer. */
+  incomplete?: string;
 }
 
 const SYSTEM = `You are the acquisitions analyst inside a residential property CRM for Jacksonville / Duval County, Florida.
@@ -51,7 +53,13 @@ The property data comes from the Duval Oracle pipeline, which publishes a 404,02
 
 Useful columns: request_identifier, address_street, address_city, address_zip, owner_name, owner_mailing_city, owner_mailing_state, owner_region_class, owner_portfolio_size, market_value, assessed_value, land_value, built_year, roof_age_years, roof_age_basis, years_since_last_sale, tenure_class, last_sale_date, last_sale_price, water_view_class, dist_to_water_m, nearest_water_name, dist_to_transit_m, dist_to_starbucks_m, property_usage_type, latitude, longitude.
 
+Two traps that produce silently empty results:
+- Tenure. years_since_last_sale is NULL for ~87% of parcels, so "years_since_last_sale > 10" quietly excludes almost everything. Use tenure_class IN ('held_10_plus_years','likely_held_10_plus_years'), or OR the two together.
+- Neighbourhoods. address_city is the incorporated city, which is 'JACKSONVILLE' for 94% of the county. Jacksonville neighbourhoods — Arlington, Riverside, Mandarin, Springfield, San Marco, Murray Hill — do not appear in it. Match them by address_zip instead: Arlington is roughly 32211, 32225, 32277; Riverside/Avondale 32204, 32205; Mandarin 32223, 32257; Springfield 32206; San Marco 32207. Say which ZIPs you used.
+
 Filter to property_usage_type = 'residential' unless asked otherwise, and require address_street IS NOT NULL for anything a user might act on.
+
+If a query returns zero rows, do not stop there and do not report zero as the answer — check whether a predicate excluded NULLs, loosen it, and try once more. Only report an empty result after you have confirmed it is genuinely empty.
 
 Be concise. Lead with the answer. Then the basis, then the caveat. When you list properties, give the folio so the user can open them.`;
 
@@ -63,7 +71,7 @@ export async function askAgent(question: string): Promise<AgentAnswer> {
     model: anthropic(MODEL),
     system: SYSTEM,
     prompt: question,
-    stopWhen: stepCountIs(8),
+    stopWhen: stepCountIs(12),
     tools: {
       describeDataset: tool({
         description:
@@ -160,10 +168,20 @@ export async function askAgent(question: string): Promise<AgentAnswer> {
     },
   });
 
+  // A blank answer panel is worse than an error: it reads as "this feature is
+  // broken" with nothing to act on. If the agent spent its step budget without
+  // writing a conclusion, say exactly that and leave the tool trace visible so
+  // the work it did do is still useful.
+  const text = result.text.trim();
+  const incomplete = text
+    ? undefined
+    : `The agent used all ${steps.length} of its tool calls without reaching a conclusion (finish reason: ${result.finishReason}). The queries it ran are below — they are real results, just not yet summarised. Asking a narrower question usually gets there.`;
+
   return {
-    text: result.text,
+    text,
     steps,
     durationMs: Date.now() - started,
     model: MODEL,
+    ...(incomplete ? { incomplete } : {}),
   };
 }
