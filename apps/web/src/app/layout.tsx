@@ -3,19 +3,20 @@ import Link from "next/link";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Jax Acquisition CRM — Jacksonville / Duval County",
+  title:
+    "Jax Acquisition CRM — Residential property acquisition, Duval County FL",
   description:
-    "Map-based residential property acquisition CRM for Jacksonville, FL. Consumes the continuous Duval Oracle pipeline over MCP: saved criteria, proactive match notifications, and the full acquisition workflow.",
+    "Map-based residential acquisition CRM for Jacksonville / Duval County, driven by the continuous Duval Oracle pipeline over MCP.",
 };
 
 const NAV = [
-  { href: "/", label: "Map" },
-  { href: "/searches", label: "Saved searches" },
-  { href: "/notifications", label: "Notifications" },
-  { href: "/opportunities", label: "Opportunities" },
-  { href: "/outreach", label: "Outreach" },
-  { href: "/agent", label: "Ask" },
-  { href: "/admin/pipeline", label: "Pipeline" },
+  { href: "/", label: "Dashboard" },
+  { href: "/properties", label: "Find properties" },
+  { href: "/searches", label: "Saved criteria" },
+  { href: "/notifications", label: "Alerts" },
+  { href: "/opportunities", label: "Pipeline" },
+  { href: "/agent", label: "Agent" },
+  { href: "/integration", label: "Data source" },
   { href: "/demo", label: "Demo" },
 ];
 
@@ -30,7 +31,7 @@ export default function RootLayout({
         <header className="masthead">
           <div className="shell masthead-inner">
             <Link href="/" className="brand" data-testid="brand">
-              Jax Acquisition CRM <span>· Duval County, FL</span>
+              Jax Acquisition CRM <span>· Jacksonville / Duval County, FL</span>
             </Link>
             <nav className="nav">
               {NAV.map((item) => (
