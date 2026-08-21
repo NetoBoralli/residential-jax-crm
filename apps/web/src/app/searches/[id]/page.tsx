@@ -12,7 +12,7 @@ import {
   when,
 } from "@/components/ui";
 import { describe, paramsFromCriteria } from "@/lib/criteria";
-import { all } from "@/lib/db";
+import { all, lit } from "@/lib/db";
 import { OracleUnavailable, listPipelineRuns } from "@/lib/oracle-client";
 import { criteriaOf, getSearch, runSearch } from "@/lib/searches";
 
@@ -35,7 +35,7 @@ export default async function SearchDetail({
   let error: string | undefined;
   try {
     [result, runs] = await Promise.all([
-      runSearch(criteria, { limit: 100 }),
+      runSearch(criteria, { limit: 60 }),
       listPipelineRuns(6),
     ]);
   } catch (e) {
@@ -52,8 +52,9 @@ export default async function SearchDetail({
     changed_in_run: number;
     created_at: string;
   }>(`
-    SELECT notification_id, run_id, matched_count, changed_in_run, created_at
-      FROM notifications WHERE search_id = '${id.replace(/'/g, "''")}'
+    SELECT notification_id, run_id, matched_count, changed_in_run,
+           captured_matches, created_at
+      FROM notifications WHERE search_id = ${lit(id)}
      ORDER BY created_at DESC
   `);
 
@@ -174,6 +175,13 @@ export default async function SearchDetail({
               </span>{" "}
               properties satisfy these criteria in the currently published
               dataset.
+              {result && result.total > result.rows.length ? (
+                <>
+                  {" "}
+                  The {num(result.rows.length)} strongest matches are listed and
+                  mapped below.
+                </>
+              ) : null}
             </p>
             <div className="split" style={{ marginTop: 14 }}>
               <ParcelMap points={points} height={380} />
@@ -187,7 +195,7 @@ export default async function SearchDetail({
                     </tr>
                   </thead>
                   <tbody>
-                    {result?.rows.slice(0, 40).map((r) => (
+                    {result?.rows.map((r) => (
                       <tr key={r.request_identifier}>
                         <td>
                           <Link

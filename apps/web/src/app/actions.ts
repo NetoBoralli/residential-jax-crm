@@ -4,7 +4,6 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { criteriaFromParams } from "@/lib/criteria";
-import { listPipelineRuns } from "@/lib/oracle-client";
 import {
   type Stage,
   addNote,
@@ -16,18 +15,12 @@ import {
   updateDeal,
 } from "@/lib/opportunities";
 import {
-  type Channel,
   advanceOutreach,
   draftOutreach,
+  isChannel,
   template,
 } from "@/lib/outreach";
-import {
-  checkSearchAgainstRun,
-  deleteSearch,
-  getSearch,
-  listSearches,
-  saveSearch,
-} from "@/lib/searches";
+import { deleteSearch, saveSearch, sweepForMatches } from "@/lib/searches";
 
 /**
  * Every mutation is a form post to a server action.
@@ -40,6 +33,29 @@ import {
 
 const str = (fd: FormData, key: string): string =>
   String(fd.get(key) ?? "").trim();
+
+/**
+ * A field the form submitted, distinguishing "left blank" from "not submitted".
+ *
+ * These matter apart. `undefined` means the form did not carry the field and it
+ * must be left alone; `null` means the user cleared it and it must be written
+ * as NULL. Collapsing both to `undefined` made every clearable control on the
+ * deal form — unassign, remove an offer, blank the next step — silently do
+ * nothing.
+ */
+const field = (fd: FormData, key: string): string | null | undefined => {
+  if (!fd.has(key)) return undefined;
+  const value = str(fd, key);
+  return value === "" ? null : value;
+};
+
+const numField = (fd: FormData, key: string): number | null | undefined => {
+  const value = field(fd, key);
+  if (value === undefined || value === null) return value;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+};
+
 const numOrUndef = (fd: FormData, key: string): number | undefined => {
   const raw = str(fd, key);
   if (!raw) return undefined;
@@ -82,36 +98,23 @@ export async function checkForMatchesAction(fd: FormData): Promise<void> {
   const searchId = str(fd, "search_id");
   const explicitRun = str(fd, "run_id");
 
-  const { runs } = await listPipelineRuns(25);
-  const searches = searchId
-    ? [await getSearch(searchId)].filter(Boolean)
-    : (await listSearches()).filter((s) => s.notify);
-
-  // Newest first from the Oracle; check oldest-to-newest so the alert list
-  // reads chronologically rather than backwards.
-  const candidates = (
-    explicitRun ? runs.filter((r) => r.run_id === explicitRun) : runs
-  )
-    .filter((r) => r.status === "success")
-    .slice(0, 5)
-    .reverse();
-
-  for (const search of searches) {
-    if (!search) continue;
-    for (const run of candidates) {
-      try {
-        await checkSearchAgainstRun(search, run.run_id);
-      } catch {
-        // A run published before change-tracking existed has no changes
-        // artifact. That is a fact about that run, not a failure of the sweep,
-        // so the remaining runs still get checked.
-      }
-    }
-  }
+  // One implementation, shared with the scheduler endpoint. Two copies of this
+  // loop drifted within a day of being written.
+  const result = await sweepForMatches({
+    ...(searchId ? { searchId } : {}),
+    ...(explicitRun ? { runId: explicitRun } : {}),
+  });
 
   revalidatePath("/notifications");
   revalidatePath("/searches");
-  redirect("/notifications");
+
+  // The Oracle being unreachable is not "no matches" — it is a failed check,
+  // and redirecting to an unchanged alert list would report it as a success.
+  redirect(
+    result.unreachable
+      ? `/notifications?error=${encodeURIComponent(result.unreachable)}`
+      : "/notifications",
+  );
 }
 
 export async function convertAction(fd: FormData): Promise<void> {
@@ -148,11 +151,11 @@ export async function updateDealAction(fd: FormData): Promise<void> {
   const opportunityId = str(fd, "opportunity_id");
   await updateDeal({
     opportunityId,
-    ownerInterest: str(fd, "owner_interest") || undefined,
-    askingPrice: numOrUndef(fd, "asking_price"),
-    offerPrice: numOrUndef(fd, "offer_price"),
-    nextStep: str(fd, "next_step") || undefined,
-    assignedTo: str(fd, "assigned_to") || undefined,
+    ownerInterest: field(fd, "owner_interest"),
+    askingPrice: numField(fd, "asking_price"),
+    offerPrice: numField(fd, "offer_price"),
+    nextStep: field(fd, "next_step"),
+    assignedTo: field(fd, "assigned_to"),
   });
   revalidatePath(`/opportunities/${opportunityId}`);
 }
@@ -191,18 +194,45 @@ export async function toggleTaskAction(fd: FormData): Promise<void> {
 
 export async function draftOutreachAction(fd: FormData): Promise<void> {
   const opportunityId = str(fd, "opportunity_id");
-  const channel = str(fd, "channel") as Channel;
-  const drafted = template({
-    channel,
+  const requested = str(fd, "channel");
+  if (!isChannel(requested)) {
+    throw new Error(`"${requested}" is not an outreach channel.`);
+  }
+
+  // The form pre-fills the email template, so a user who switches the channel
+  // select to SMS or direct mail would otherwise post email copy under the new
+  // channel — a letter with no address block, or an SMS with a subject line.
+  // Text the user actually edited is kept; text still identical to the email
+  // template is replaced with the chosen channel's own.
+  const emailDraft = template({
+    channel: "email",
     ownerName: str(fd, "owner_name") || null,
     address: str(fd, "address") || null,
     rationale: str(fd, "rationale") || null,
   });
+  const drafted = template({
+    channel: requested,
+    ownerName: str(fd, "owner_name") || null,
+    address: str(fd, "address") || null,
+    rationale: str(fd, "rationale") || null,
+  });
+
+  const submittedSubject = str(fd, "subject");
+  const submittedBody = str(fd, "body");
+  const subject =
+    submittedSubject && submittedSubject !== emailDraft.subject
+      ? submittedSubject
+      : drafted.subject;
+  const body =
+    submittedBody && submittedBody !== emailDraft.body
+      ? submittedBody
+      : drafted.body;
+
   await draftOutreach({
     opportunityId,
-    channel,
-    subject: str(fd, "subject") || drafted.subject,
-    body: str(fd, "body") || drafted.body,
+    channel: requested,
+    ...(subject ? { subject } : {}),
+    body,
     toAddress: str(fd, "to_address") || undefined,
   });
   revalidatePath(`/opportunities/${opportunityId}`);

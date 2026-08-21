@@ -19,6 +19,10 @@ import { all, lit, nextId, one, run } from "./db";
 export const CHANNELS = ["email", "sms", "direct_mail"] as const;
 export type Channel = (typeof CHANNELS)[number];
 
+export function isChannel(value: string): value is Channel {
+  return (CHANNELS as readonly string[]).includes(value);
+}
+
 export const CHANNEL_LABEL: Record<Channel, string> = {
   email: "Email",
   sms: "SMS",
@@ -101,17 +105,31 @@ export async function advanceOutreach(
   );
   if (!msg) throw new Error(`No outreach ${outreachId}`);
 
+  const label = CHANNEL_LABEL[msg.channel] ?? msg.channel;
   const lifecycle = LIFECYCLE[msg.channel] ?? [];
+  if (lifecycle.length === 0) {
+    throw new Error(
+      `"${msg.channel}" is not a channel with a known lifecycle.`,
+    );
+  }
+
   const from = lifecycle.indexOf(msg.status);
   const to = lifecycle.indexOf(toStatus);
   if (to < 0) {
     throw new Error(
-      `"${toStatus}" is not a state a ${CHANNEL_LABEL[msg.channel]} message can reach.`,
+      `"${toStatus}" is not a state a ${label} message can reach.`,
+    );
+  }
+  // A status outside its own lifecycle gives from = -1, which would make every
+  // forward comparison true and let the message be rewound to "queued".
+  if (from < 0) {
+    throw new Error(
+      `This ${label} message is in state "${msg.status}", which is not part of its lifecycle; it cannot be advanced.`,
     );
   }
   if (to <= from) {
     throw new Error(
-      `A ${CHANNEL_LABEL[msg.channel]} message cannot go from "${msg.status}" back to "${toStatus}".`,
+      `A ${label} message cannot go from "${msg.status}" back to "${toStatus}".`,
     );
   }
 

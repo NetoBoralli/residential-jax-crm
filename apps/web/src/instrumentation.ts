@@ -19,13 +19,39 @@
  * The Oracle's own MCP host is not on this list; that is the sanctioned path.
  */
 
-const FORBIDDEN_HOSTS = [
-  "ipfs.filebase.io",
-  "s3.filebase.io",
-  "api.filebase.io",
-  "floridarevenue.com",
-  "overturemaps-us-west-2.s3.amazonaws.com",
-  "overturemaps.org",
+/**
+ * The blocked hosts, with why each one is blocked.
+ *
+ * Exported because /integration renders this list to prove the boundary
+ * exists. It previously kept its own copy, which drifted immediately: the page
+ * told a reviewer five hosts were blocked while the guard blocked six, and
+ * omitted overturemaps.org — the exact fact the page exists to demonstrate.
+ */
+export const FORBIDDEN_HOSTS: Array<{ host: string; why: string }> = [
+  {
+    host: "ipfs.filebase.io",
+    why: "The published artifacts. Reading them directly skips the Oracle's derivations and the caveats that bound them.",
+  },
+  {
+    host: "s3.filebase.io",
+    why: "The object store behind those artifacts.",
+  },
+  {
+    host: "api.filebase.io",
+    why: "IPNS control. The CRM has no business moving a pointer it does not own.",
+  },
+  {
+    host: "floridarevenue.com",
+    why: "The raw Florida DOR tax roll. Re-deriving from source is exactly the duplication this boundary prevents.",
+  },
+  {
+    host: "overturemaps-us-west-2.s3.amazonaws.com",
+    why: "Raw Overture Places and water, as the pipeline reads them.",
+  },
+  {
+    host: "overturemaps.org",
+    why: "Overture's own distribution. Same reason as the S3 bucket.",
+  },
 ];
 
 export class AccessBoundaryViolation extends Error {
@@ -40,11 +66,11 @@ export function assertAllowed(url: string): void {
     return; // Relative URLs never leave the app.
   }
   const blocked = FORBIDDEN_HOSTS.find(
-    (h) => host === h || host.endsWith(`.${h}`),
+    ({ host: h }) => host === h || host.endsWith(`.${h}`),
   );
   if (blocked) {
     throw new AccessBoundaryViolation(
-      `Blocked a direct request to ${host}. This CRM must read Duval property data through the Oracle pipeline's MCP surface (lib/oracle-client.ts), not from ${blocked} directly — see docs/access-boundaries.md.`,
+      `Blocked a direct request to ${host}. This CRM must read Duval property data through the Oracle pipeline's MCP surface (lib/oracle-client.ts), not from ${blocked.host} directly — see docs/access-boundaries.md.`,
     );
   }
 }

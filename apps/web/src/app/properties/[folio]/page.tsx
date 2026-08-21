@@ -10,6 +10,7 @@ import {
   money,
 } from "@/components/ui";
 import { columnsFor, criteriaFromParams, score } from "@/lib/criteria";
+import { sqlString } from "@/lib/sql";
 import { OracleUnavailable, queryProperties } from "@/lib/oracle-client";
 import { getOpportunityByFolio } from "@/lib/opportunities";
 
@@ -112,7 +113,7 @@ export default async function PropertyPage({
       "longitude",
     ]);
     const res = await queryProperties(
-      `SELECT ${[...wanted].join(", ")} FROM properties WHERE request_identifier = '${decoded.replace(/'/g, "''")}'`,
+      `SELECT ${[...wanted].join(", ")} FROM properties WHERE request_identifier = ${sqlString(decoded)}`,
       1,
     );
     row = res.rows[0] as Record<string, unknown> | undefined;
@@ -187,12 +188,24 @@ export default async function PropertyPage({
               name="owner_name"
               value={String(row["owner_name"] ?? "")}
             />
-            <input type="hidden" name="score" value={String(matched.score)} />
-            <input
-              type="hidden"
-              name="rationale"
-              value={matched.rationale.join(" · ")}
-            />
+            {/* Only sent when criteria were actually applied. Posting 0 for a
+                property opened without criteria wrote match_score = 0, which
+                the pipeline then renders as "0% match" — asserting the deal was
+                evaluated and scored nothing, rather than never scored. */}
+            {matched.rationale.length > 0 ? (
+              <>
+                <input
+                  type="hidden"
+                  name="score"
+                  value={String(matched.score)}
+                />
+                <input
+                  type="hidden"
+                  name="rationale"
+                  value={matched.rationale.join(" · ")}
+                />
+              </>
+            ) : null}
             <button className="btn" type="submit" data-testid="convert">
               Track as opportunity
             </button>

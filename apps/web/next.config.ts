@@ -5,8 +5,9 @@ const nextConfig: NextConfig = {
   output: "standalone",
   outputFileTracingRoot: new URL("../../", import.meta.url).pathname,
   reactStrictMode: true,
-  // The evaluator drives this app with Playwright. Never let a build-time type or lint
-  // error become a deploy failure — CI is where those gate, not the runtime.
+  // There is no ESLint config in this repo, so `next build` would otherwise
+  // stop to ask about one. Type errors are NOT ignored — `typescript` is left
+  // at its default, and CI runs type-check, format:check and test separately.
   eslint: { ignoreDuringBuilds: true },
   // DuckDB ships a native addon. Bundling it breaks .node resolution, so it stays
   // external and is required at runtime from node_modules.

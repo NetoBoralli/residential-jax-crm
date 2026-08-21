@@ -10,6 +10,7 @@ import {
 } from "./criteria";
 import {
   type OracleProperty,
+  listPipelineRuns,
   matchChangedProperties,
   queryProperties,
 } from "./oracle-client";
@@ -134,9 +135,14 @@ export interface CheckResult {
   runId: string;
   changedInRun: number;
   matched: number;
+  /** How many matched rows were captured as evidence — the Oracle caps this. */
+  capturedMatches?: number;
   notificationId?: string;
   alreadySeen: boolean;
 }
+
+/** How far back a sweep looks. Named once; the UI copy quotes this number. */
+export const MAX_RUNS_PER_SWEEP = 5;
 
 /**
  * Check one saved search against one pipeline run and raise an alert if that
@@ -191,23 +197,37 @@ export async function checkSearchAgainstRun(
     };
   }
 
+  // The alert row and its evidence go in together. Written separately, a
+  // restart between them (a redeploy during a sweep) leaves an alert claiming
+  // 37 matches with 5 rows of evidence — and the idempotency guard above then
+  // makes it permanent, because the repeat sweep sees the alert and stops. The
+  // traceability claim is the whole feature, so it is written atomically.
   const notificationId = await nextId("alert");
-  await run(`
-    INSERT INTO notifications
-      (notification_id, search_id, run_id, changes_cid, matched_count, changed_in_run, delta_types)
-    VALUES (${lit(notificationId)}, ${lit(search.search_id)}, ${lit(runId)},
-            ${lit(match.changesCid)}, ${match.matched}, ${match.changedInRun}, ${lit("insert,update")})
-  `);
-
-  for (const row of match.rows) {
+  await run(`BEGIN TRANSACTION`);
+  try {
     await run(`
-      INSERT INTO notification_matches
-        (notification_id, folio, delta_type, address, owner_name, market_value)
-      VALUES (${lit(notificationId)}, ${lit(row.request_identifier)},
-              ${lit(String((row as Record<string, unknown>)["delta_type"] ?? "update"))},
-              ${lit(row.address_street)}, ${lit(row.owner_name)}, ${lit(row.market_value)})
-      ON CONFLICT DO NOTHING
+      INSERT INTO notifications
+        (notification_id, search_id, run_id, changes_cid, matched_count,
+         captured_matches, changed_in_run, delta_types)
+      VALUES (${lit(notificationId)}, ${lit(search.search_id)}, ${lit(runId)},
+              ${lit(match.changesCid)}, ${lit(match.matched)}, ${lit(match.rows.length)},
+              ${lit(match.changedInRun)}, ${lit("insert,update")})
     `);
+
+    for (const row of match.rows) {
+      await run(`
+        INSERT INTO notification_matches
+          (notification_id, folio, delta_type, address, owner_name, market_value)
+        VALUES (${lit(notificationId)}, ${lit(row.request_identifier)},
+                ${lit(String((row as Record<string, unknown>)["delta_type"] ?? "update"))},
+                ${lit(row.address_street)}, ${lit(row.owner_name)}, ${lit(row.market_value)})
+        ON CONFLICT DO NOTHING
+      `);
+    }
+    await run(`COMMIT`);
+  } catch (error) {
+    await run(`ROLLBACK`).catch(() => undefined);
+    throw error;
   }
 
   return {
@@ -215,7 +235,93 @@ export async function checkSearchAgainstRun(
     runId,
     changedInRun: match.changedInRun,
     matched: match.matched,
+    capturedMatches: match.rows.length,
     notificationId,
     alreadySeen: false,
+  };
+}
+
+export interface SweepResult {
+  alerts: CheckResult[];
+  watchedSearches: number;
+  runsChecked: number;
+  /** Set when the Oracle could not be reached at all. */
+  unreachable?: string;
+  /** Runs that could not be checked, with the reason. */
+  skipped: Array<{ searchId: string; runId: string; reason: string }>;
+  durationMs: number;
+}
+
+/**
+ * Check watched criteria against recent runs.
+ *
+ * One implementation, called by both the UI button and the scheduler endpoint.
+ * Two copies of this loop existed for about a day and had already drifted in
+ * how they reported a skipped run — which is exactly the drift the endpoint's
+ * own comment claimed could not happen.
+ */
+export async function sweepForMatches(
+  opts: { searchId?: string; runId?: string; maxRuns?: number } = {},
+): Promise<SweepResult> {
+  const started = Date.now();
+  const skipped: SweepResult["skipped"] = [];
+  const alerts: CheckResult[] = [];
+
+  let runs;
+  let searches;
+  try {
+    [{ runs }, searches] = await Promise.all([
+      listPipelineRuns(25),
+      opts.searchId
+        ? getSearch(opts.searchId).then((s) => (s ? [s] : []))
+        : listSearches().then((all) => all.filter((s) => s.notify)),
+    ]);
+  } catch (error) {
+    // The Oracle being unreachable is not "no matches". Reporting it as a
+    // successful sweep would teach the user that an unchanged alert list means
+    // nothing matched.
+    return {
+      alerts: [],
+      watchedSearches: 0,
+      runsChecked: 0,
+      unreachable: error instanceof Error ? error.message : String(error),
+      skipped: [],
+      durationMs: Date.now() - started,
+    };
+  }
+
+  // Newest first from the Oracle; checked oldest-to-newest so the alert list
+  // reads in the order the runs actually happened.
+  const candidates = (
+    opts.runId ? runs.filter((r) => r.run_id === opts.runId) : runs
+  )
+    .filter((r) => r.status === "success")
+    .slice(0, opts.maxRuns ?? MAX_RUNS_PER_SWEEP)
+    .reverse();
+
+  for (const search of searches) {
+    for (const run of candidates) {
+      try {
+        alerts.push(await checkSearchAgainstRun(search, run.run_id));
+      } catch (error) {
+        // A run published before change tracking existed has no changes
+        // artifact. That is a fact about that run, not a failure of the sweep,
+        // so the remaining runs still get checked — and it is recorded rather
+        // than swallowed.
+        skipped.push({
+          searchId: search.search_id,
+          runId: run.run_id,
+          reason: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  }
+
+  return {
+    alerts,
+    watchedSearches: searches.length,
+    runsChecked: candidates.length,
+    skipped,
+    durationMs: Date.now() - started,
   };
 }

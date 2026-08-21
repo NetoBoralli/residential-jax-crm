@@ -2,7 +2,8 @@ import Link from "next/link";
 
 import { checkForMatchesAction, convertAction } from "@/app/actions";
 import { money, num, when } from "@/components/ui";
-import { all } from "@/lib/db";
+import { all, lit } from "@/lib/db";
+import { MAX_RUNS_PER_SWEEP } from "@/lib/searches";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -14,6 +15,7 @@ interface AlertRow {
   run_id: string;
   changes_cid: string | null;
   matched_count: number;
+  captured_matches: number | null;
   changed_in_run: number;
   created_at: string;
 }
@@ -43,13 +45,15 @@ export default async function NotificationsPage({
 }) {
   const sp = await searchParams;
   const runFilter = typeof sp["run"] === "string" ? sp["run"] : undefined;
+  const sweepError = typeof sp["error"] === "string" ? sp["error"] : undefined;
 
   const alerts = await all<AlertRow>(`
     SELECT n.notification_id, n.search_id, s.name AS search_name, n.run_id,
-           n.changes_cid, n.matched_count, n.changed_in_run, n.created_at
+           n.changes_cid, n.matched_count, n.captured_matches,
+           n.changed_in_run, n.created_at
       FROM notifications n
       LEFT JOIN saved_searches s USING (search_id)
-     ${runFilter ? `WHERE n.run_id = '${runFilter.replace(/'/g, "''")}'` : ""}
+     ${runFilter ? `WHERE n.run_id = ${lit(runFilter)}` : ""}
      ORDER BY n.created_at DESC
   `);
 
@@ -96,12 +100,35 @@ export default async function NotificationsPage({
               Check watched criteria now
             </button>
             <p className="subtle" style={{ marginTop: 8 }}>
-              Runs every watched criteria set against the last five successful
-              pipeline runs.
+              Runs every watched criteria set against the last{" "}
+              {MAX_RUNS_PER_SWEEP} successful pipeline runs.
             </p>
           </form>
         </div>
       </div>
+
+      {sweepError ? (
+        <div
+          className="card"
+          style={{ marginTop: 18, borderColor: "var(--border-strong)" }}
+          data-testid="sweep-error"
+        >
+          <h3>
+            <span className="badge badge-warn">Check did not run</span>
+          </h3>
+          <p className="muted" style={{ marginTop: 8 }}>
+            The Duval Oracle could not be reached, so nothing was checked
+            against it. The alert list below is unchanged — this is not a report
+            that nothing matched.
+          </p>
+          <pre
+            className="mono subtle"
+            style={{ marginTop: 10, marginBottom: 0, whiteSpace: "pre-wrap" }}
+          >
+            {sweepError}
+          </pre>
+        </div>
+      ) : null}
 
       {runFilter ? (
         <p className="subtle" style={{ marginTop: 14 }}>
@@ -198,7 +225,7 @@ export default async function NotificationsPage({
                       </tr>
                     </thead>
                     <tbody>
-                      {rows.slice(0, 12).map((m) => (
+                      {rows.map((m) => (
                         <tr key={`${m.notification_id}-${m.folio}`}>
                           <td>
                             <Link
@@ -258,8 +285,12 @@ export default async function NotificationsPage({
                 ) : null}
                 {rows.length < Number(a.matched_count) ? (
                   <p className="subtle" style={{ marginTop: 8 }}>
-                    Showing {num(rows.length)} of {num(a.matched_count)} matched
-                    properties — the alert captured the top matches by value.
+                    All {num(rows.length)} captured{" "}
+                    {rows.length === 1 ? "property is" : "properties are"}{" "}
+                    listed above, out of {num(a.matched_count)} that matched in
+                    this run. The Oracle caps how many matched rows an alert
+                    captures as evidence; the full set is reachable from the
+                    criteria set.
                   </p>
                 ) : null}
               </section>

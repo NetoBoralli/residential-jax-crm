@@ -1,4 +1,5 @@
 import { OracleDown, num, when } from "@/components/ui";
+import { FORBIDDEN_HOSTS } from "@/instrumentation";
 import {
   ORACLE_ENDPOINT,
   OracleUnavailable,
@@ -8,14 +9,6 @@ import {
 } from "@/lib/oracle-client";
 
 export const dynamic = "force-dynamic";
-
-const BLOCKED = [
-  "ipfs.filebase.io",
-  "s3.filebase.io",
-  "api.filebase.io",
-  "floridarevenue.com",
-  "overturemaps-us-west-2.s3.amazonaws.com",
-];
 
 /**
  * The access boundary, made visible.
@@ -182,25 +175,7 @@ export default async function IntegrationPage() {
             </tr>
           </thead>
           <tbody>
-            {[
-              [
-                "ipfs.filebase.io",
-                "Reading the published artifact directly would skip the Oracle's derivations and caveats.",
-              ],
-              ["s3.filebase.io", "The object store behind those artifacts."],
-              [
-                "api.filebase.io",
-                "IPNS control. The CRM has no business moving a pointer it does not own.",
-              ],
-              [
-                "floridarevenue.com",
-                "The raw Florida DOR tax roll. Re-deriving from source is exactly the duplication this boundary prevents.",
-              ],
-              [
-                "overturemaps-us-west-2.s3.amazonaws.com",
-                "Raw Overture Places and water. Same reason.",
-              ],
-            ].map(([host, why]) => (
+            {FORBIDDEN_HOSTS.map(({ host, why }) => (
               <tr key={host}>
                 <td className="mono">{host}</td>
                 <td className="muted">{why}</td>
@@ -209,7 +184,8 @@ export default async function IntegrationPage() {
           </tbody>
         </table>
         <p className="subtle" style={{ marginTop: 10 }}>
-          {BLOCKED.length} hosts blocked. A Vitest case asserts the guard
+          {FORBIDDEN_HOSTS.length} hosts blocked, listed straight from the guard
+          itself rather than from a copy. A Vitest case asserts the guard
           actually throws, so the boundary is covered by a test rather than by a
           comment.
         </p>

@@ -324,9 +324,13 @@ export function criteriaFromParams(
     const v = Number(Array.isArray(raw) ? raw[0] : raw);
     return Number.isFinite(v) ? v : undefined;
   };
+  const raw = (k: string): string | undefined => {
+    const v = params[k];
+    return Array.isArray(v) ? v[0] : v;
+  };
+  /** "any" is the select's own "no preference" option, not a value. */
   const str = (k: string): string | undefined => {
-    const raw = params[k];
-    const v = Array.isArray(raw) ? raw[0] : raw;
+    const v = raw(k);
     return v && v !== "any" ? v : undefined;
   };
   const cities = str("cities");
@@ -342,8 +346,17 @@ export function criteriaFromParams(
     cities: cities ? cities.split(",").filter(Boolean) : undefined,
     ownerRegion: str("owner"),
     portfolioMin: num("portfolio"),
-    residentialOnly: str("usage") !== "any",
+    // Deliberately reads the raw param: `str` maps "any" to undefined, so
+    // comparing its result against "any" was always true — which made
+    // residentialOnly impossible to turn off and made an empty criteria set
+    // look non-empty to every caller that checks whether one was supplied.
+    residentialOnly: raw("usage") !== "any",
   };
+}
+
+/** True when the user actually asked for something, rather than landing on a bare page. */
+export function hasAnyFacet(c: Criteria): boolean {
+  return facetsFor(c).length > 0;
 }
 
 export function paramsFromCriteria(c: Criteria): URLSearchParams {

@@ -1,5 +1,6 @@
 import { all } from "@/lib/db";
 import { queryProperties } from "@/lib/oracle-client";
+import { sqlString } from "@/lib/sql";
 import { isStage, listOpportunities } from "@/lib/opportunities";
 
 export const dynamic = "force-dynamic";
@@ -17,7 +18,12 @@ export const maxDuration = 120;
 function csv(rows: Array<Record<string, unknown>>, columns: string[]): string {
   const escape = (v: unknown): string => {
     if (v === null || v === undefined) return "";
-    const s = String(v);
+    let s = String(v);
+    // Owner names come from a public roll and go into a file someone opens in
+    // Excel. A leading =, +, - or @ makes the cell a formula there, so it is
+    // prefixed to keep it text. Costs a quote mark; avoids a spreadsheet that
+    // executes a county record.
+    if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
   return [
@@ -76,22 +82,28 @@ export async function GET(request: Request): Promise<Response> {
     return download("", `jax-crm-${type}.csv`);
   }
 
-  // One Oracle call for the whole export rather than one per row.
-  const folios = opportunities
-    .map((o) => `'${o.folio.replace(/'/g, "''")}'`)
-    .join(", ");
-  const live = await queryProperties(
-    `SELECT request_identifier, address_street, address_city, address_zip,
-            owner_name, owner_mailing_city, owner_mailing_state,
-            market_value, assessed_value, roof_age_years, tenure_class,
-            years_since_last_sale, owner_region_class, owner_portfolio_size,
-            latitude, longitude
-       FROM properties WHERE request_identifier IN (${folios})`,
-    Math.min(opportunities.length, 1000),
-  );
-  const byFolio = new Map(
-    live.rows.map((r) => [r.request_identifier, r as Record<string, unknown>]),
-  );
+  // Property facts are fetched in pages. The Oracle caps a single response at
+  // 1000 rows, and asking for more than that used to return the first 1000 and
+  // silently emit blank owner names and blank mailing addresses for the rest —
+  // a mailing list with unaddressed entries and nothing anywhere to say so.
+  const PAGE = 500;
+  const byFolio = new Map<string, Record<string, unknown>>();
+  for (let i = 0; i < opportunities.length; i += PAGE) {
+    const page = opportunities.slice(i, i + PAGE);
+    const folios = page.map((o) => sqlString(o.folio)).join(", ");
+    const live = await queryProperties(
+      `SELECT request_identifier, address_street, address_city, address_zip,
+              owner_name, owner_mailing_city, owner_mailing_state,
+              market_value, assessed_value, roof_age_years, tenure_class,
+              years_since_last_sale, owner_region_class, owner_portfolio_size,
+              latitude, longitude
+         FROM properties WHERE request_identifier IN (${folios})`,
+      PAGE,
+    );
+    for (const row of live.rows) {
+      byFolio.set(row.request_identifier, row as Record<string, unknown>);
+    }
+  }
 
   const joined = opportunities.map((o) => {
     const p = byFolio.get(o.folio) ?? {};

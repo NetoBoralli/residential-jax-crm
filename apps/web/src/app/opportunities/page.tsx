@@ -2,7 +2,12 @@ import Link from "next/link";
 
 import { StageBadge, money, num, when } from "@/components/ui";
 import { all } from "@/lib/db";
-import { ALL_STAGES, STAGES, listOpportunities } from "@/lib/opportunities";
+import {
+  ALL_STAGES,
+  STAGES,
+  listOpportunities,
+  listUsers,
+} from "@/lib/opportunities";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +34,9 @@ export default async function OpportunitiesPage({
     ...(minScore !== undefined ? { minScore } : {}),
     ...(city ? { city } : {}),
   });
+
+  const users = await listUsers();
+  const byUser = new Map(users.map((u) => [u.user_id, u.name]));
 
   const byStage = await all<{ stage: string; n: number; value: number }>(`
     SELECT stage, count(*) AS n, COALESCE(sum(offer_price), 0) AS value
@@ -140,7 +148,7 @@ export default async function OpportunitiesPage({
               <th>Stage</th>
               <th className="num">Match</th>
               <th className="num">Offer</th>
-              <th>Owner</th>
+              <th>Assigned</th>
               <th>Updated</th>
             </tr>
           </thead>
@@ -164,7 +172,11 @@ export default async function OpportunitiesPage({
                   {o.match_score === null ? "—" : `${o.match_score}%`}
                 </td>
                 <td className="num">{money(o.offer_price)}</td>
-                <td className="subtle">{o.assigned_to ?? "unassigned"}</td>
+                <td className="subtle">
+                  {o.assigned_to
+                    ? (byUser.get(o.assigned_to) ?? o.assigned_to)
+                    : "unassigned"}
+                </td>
                 <td className="subtle">{when(o.updated_at)}</td>
               </tr>
             ))}

@@ -2,6 +2,20 @@
 
 import { useEffect, useRef, useState } from "react";
 
+function escapeHtml(value: string): string {
+  return String(value).replace(
+    /[&<>"']/g,
+    (c) =>
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;",
+      })[c] ?? c,
+  );
+}
+
 export interface MapPoint {
   folio: string;
   lat: number;
@@ -32,7 +46,11 @@ export function ParcelMap({
 }) {
   const container = useRef<HTMLDivElement>(null);
   const [failed, setFailed] = useState<string | undefined>();
+  const pointsKey = points
+    .map((p) => `${p.folio}:${p.lat}:${p.lon}:${p.score ?? ""}`)
+    .join(",");
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     let map: { remove: () => void } | undefined;
     let cancelled = false;
@@ -131,11 +149,15 @@ export function ParcelMap({
             const f = e.features?.[0];
             if (!f) return;
             const props = f.properties as { folio: string; label: string };
+            // Owner names and addresses come from the county roll by way of the
+            // Oracle. setHTML parses whatever it is given, so they are escaped
+            // rather than trusted — an apostrophe in an owner name is common,
+            // and a bracket would otherwise be markup.
             popup
               .setLngLat(e.lngLat)
               .setHTML(
-                `<div style="font:13px system-ui;color:#111"><strong>${props.label}</strong><br/>` +
-                  `<a href="/properties/${encodeURIComponent(props.folio)}">Open ${props.folio}</a></div>`,
+                `<div style="font:13px system-ui;color:#111"><strong>${escapeHtml(props.label)}</strong><br/>` +
+                  `<a href="/properties/${encodeURIComponent(props.folio)}">Open ${escapeHtml(props.folio)}</a></div>`,
               )
               .addTo(m);
           });
@@ -167,7 +189,10 @@ export function ParcelMap({
       cancelled = true;
       map?.remove();
     };
-  }, [points]);
+    // Keyed by the identity of the plotted set rather than the array itself.
+    // `points` is rebuilt on every server render, so depending on it tore the
+    // map down and reset the user's pan and zoom on any re-render.
+  }, [pointsKey]);
 
   const plotted = points.filter(
     (p) => Number.isFinite(p.lat) && Number.isFinite(p.lon),

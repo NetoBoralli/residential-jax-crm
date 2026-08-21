@@ -12,6 +12,7 @@ import {
 import {
   criteriaFromParams,
   describe,
+  hasAnyFacet,
   paramsFromCriteria,
 } from "@/lib/criteria";
 import { OracleUnavailable } from "@/lib/oracle-client";
@@ -19,6 +20,15 @@ import { runSearch } from "@/lib/searches";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
+
+/**
+ * How many matches are fetched, plotted and listed.
+ *
+ * One number, used everywhere. Previously the banner quoted the fetched count,
+ * the table sliced to 60 and the map plotted all 150 — three numbers for one
+ * result set, on a page whose own header comment promised they were the same.
+ */
+const SHOWN = 100;
 
 const CITIES = [
   "JACKSONVILLE",
@@ -42,14 +52,15 @@ export default async function PropertiesPage({
 }) {
   const params = await searchParams;
   const criteria = criteriaFromParams(params);
-  const hasCriteria = Object.values(criteria).some(
-    (v) => v !== undefined && v !== false,
-  );
+  // Whether the user actually asked for something. Checking "any field is set"
+  // was always true, because residentialOnly defaults on — so the empty page
+  // offered to save a criteria set with no criteria in it.
+  const hasFacets = hasAnyFacet(criteria);
 
   let result;
   let error: string | undefined;
   try {
-    result = await runSearch(criteria, { limit: 150 });
+    result = await runSearch(criteria, { limit: SHOWN });
   } catch (e) {
     error =
       e instanceof OracleUnavailable || e instanceof Error
@@ -231,12 +242,13 @@ export default async function PropertiesPage({
               </span>
               {result && result.total > result.rows.length ? (
                 <div className="subtle" style={{ marginTop: 4 }}>
-                  Showing the top {num(result.rows.length)} by match score, then
-                  by just value. Narrow the criteria to see further in.
+                  Listing and mapping the top {num(result.rows.length)} by match
+                  score, then by just value. Narrow the criteria to see further
+                  in, or export the full set from a saved criteria set.
                 </div>
               ) : null}
             </div>
-            {hasCriteria ? (
+            {hasFacets ? (
               <form action={saveSearchAction} data-testid="save-search-form">
                 {[...paramsFromCriteria(criteria).entries()].map(([k, v]) => (
                   <input key={k} type="hidden" name={k} value={v} />
@@ -269,7 +281,7 @@ export default async function PropertiesPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {result?.rows.slice(0, 60).map((r) => (
+                  {result?.rows.map((r) => (
                     <tr key={r.request_identifier}>
                       <td>
                         <Link

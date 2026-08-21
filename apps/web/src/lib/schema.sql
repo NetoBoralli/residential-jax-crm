@@ -48,6 +48,10 @@ CREATE TABLE IF NOT EXISTS notifications (
     run_id          TEXT NOT NULL,
     changes_cid     TEXT,
     matched_count   INTEGER NOT NULL,
+    -- How many matched rows were captured as evidence. The Oracle caps what it
+    -- returns, so this is normally smaller than matched_count, and the UI has
+    -- to be able to say so rather than implying it listed everything.
+    captured_matches INTEGER,
     changed_in_run  INTEGER NOT NULL,
     delta_types     TEXT NOT NULL,
     channel         TEXT NOT NULL DEFAULT 'in_app',

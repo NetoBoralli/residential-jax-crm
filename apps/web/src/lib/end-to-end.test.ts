@@ -36,7 +36,20 @@ import {
  *
  *   ORACLE_MCP_URL=https://…/mcp CRM_DATA_DIR=/tmp/crm-e2e pnpm test
  */
-const LIVE = Boolean(process.env["ORACLE_MCP_URL"]);
+// Both variables, not just the first. Gating on ORACLE_MCP_URL alone meant
+// that running it without CRM_DATA_DIR fell back to db.ts's default of "/data"
+// — which on the deployed container is the real workspace, and this suite
+// writes searches, alerts, opportunities and outreach.
+const LIVE = Boolean(
+  process.env["ORACLE_MCP_URL"] && process.env["CRM_DATA_DIR"],
+);
+
+if (process.env["ORACLE_MCP_URL"] && !process.env["CRM_DATA_DIR"]) {
+  throw new Error(
+    "ORACLE_MCP_URL is set but CRM_DATA_DIR is not. This suite writes to the CRM store; " +
+      "refusing to run against the default /data volume. Set CRM_DATA_DIR to a disposable path.",
+  );
+}
 
 describe.skipIf(!LIVE)("acquisition flow, end to end", () => {
   let runId: string;
@@ -51,6 +64,22 @@ describe.skipIf(!LIVE)("acquisition flow, end to end", () => {
   };
 
   beforeAll(async () => {
+    // This suite asserts exact state — one opportunity at stage Identified, a
+    // stage history of exactly three entries. Re-run against a store it has
+    // already written to, convertToOpportunity correctly returns the existing
+    // deal (still at Negotiating from last time) and two assertions fail for a
+    // reason that has nothing to do with the code. Refuse, rather than be
+    // flaky about it.
+    const [existing] = await all<{ n: number }>(
+      `SELECT count(*) AS n FROM opportunities`,
+    );
+    if (Number(existing?.n ?? 0) > 0) {
+      throw new Error(
+        `CRM_DATA_DIR (${process.env["CRM_DATA_DIR"]}) already contains ${existing?.n} opportunities. ` +
+          `This suite asserts exact workspace state; point it at a fresh, disposable directory.`,
+      );
+    }
+
     // A run that actually changed something — a no-op run correctly produces no
     // alerts, which would make this test pass for the wrong reason.
     const { runs } = await listPipelineRuns(25);

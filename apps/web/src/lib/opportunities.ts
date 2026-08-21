@@ -130,7 +130,24 @@ export async function advanceStage(input: {
 }): Promise<void> {
   const current = await getOpportunity(input.opportunityId);
   if (!current) throw new Error(`No opportunity ${input.opportunityId}`);
-  if (current.stage === input.toStage) return;
+
+  // The stage select defaults to the current stage, so submitting the form
+  // without touching it is the ordinary interaction — and it usually carries a
+  // note. Returning early here discarded that note without saying so. Record it
+  // as a comment on the timeline instead.
+  if (current.stage === input.toStage) {
+    if (input.note) {
+      await run(`
+        INSERT INTO stage_history (opportunity_id, from_stage, to_stage, changed_by, note)
+        VALUES (${lit(input.opportunityId)}, ${lit(current.stage)}, ${lit(current.stage)},
+                ${lit(input.changedBy ?? null)}, ${lit(input.note)})
+      `);
+      await run(
+        `UPDATE opportunities SET updated_at = now() WHERE opportunity_id = ${lit(input.opportunityId)}`,
+      );
+    }
+    return;
+  }
 
   await run(`
     UPDATE opportunities
@@ -144,25 +161,31 @@ export async function advanceStage(input: {
   `);
 }
 
+/**
+ * `undefined` leaves a field alone; `null` clears it.
+ *
+ * The distinction is the whole point. Treating both as "skip" meant the
+ * Unassigned option, an emptied offer and a blanked next step all silently did
+ * nothing — the form accepted the change and the page came back with the old
+ * value still in it.
+ */
 export async function updateDeal(input: {
   opportunityId: string;
-  ownerInterest?: string;
-  askingPrice?: number;
-  offerPrice?: number;
-  nextStep?: string;
-  assignedTo?: string;
+  ownerInterest?: string | null;
+  askingPrice?: number | null;
+  offerPrice?: number | null;
+  nextStep?: string | null;
+  assignedTo?: string | null;
 }): Promise<void> {
   const sets: string[] = ["updated_at = now()"];
-  if (input.ownerInterest !== undefined)
-    sets.push(`owner_interest = ${lit(input.ownerInterest)}`);
-  if (input.askingPrice !== undefined)
-    sets.push(`asking_price = ${lit(input.askingPrice)}`);
-  if (input.offerPrice !== undefined)
-    sets.push(`offer_price = ${lit(input.offerPrice)}`);
-  if (input.nextStep !== undefined)
-    sets.push(`next_step = ${lit(input.nextStep)}`);
-  if (input.assignedTo !== undefined)
-    sets.push(`assigned_to = ${lit(input.assignedTo)}`);
+  const assign = (column: string, value: unknown) => {
+    if (value !== undefined) sets.push(`${column} = ${lit(value)}`);
+  };
+  assign("owner_interest", input.ownerInterest);
+  assign("asking_price", input.askingPrice);
+  assign("offer_price", input.offerPrice);
+  assign("next_step", input.nextStep);
+  assign("assigned_to", input.assignedTo);
 
   await run(`
     UPDATE opportunities SET ${sets.join(", ")}
