@@ -620,9 +620,23 @@ section[id] {
   padding: 8px 12px;
 }
 
-/* Long snake_case identifiers and CIDs have no break opportunities. */
-.card {
+/* Long snake_case identifiers and CIDs have no break opportunities and
+   overflowed their card. Scoped to the values that actually need it rather
+   than to `.card`: applied to the card wholesale it inherited into every table
+   cell, and short words in narrow columns broke after their second-to-last
+   letter. */
+.mono,
+.wrap-any {
   overflow-wrap: anywhere;
+}
+
+td,
+th {
+  overflow-wrap: normal;
+  word-break: normal;
+}
+.nowrap {
+  white-space: nowrap;
 }
 
 tbody tr:last-child td {
@@ -696,4 +710,11 @@ thead th {
   .skeleton-bars span {
     animation: none;
   }
+}
+
+/* Column headers are short labels — they should never wrap, let alone break
+   mid-word. Tables inside a scroll wrapper have a min-width, so a header that
+   does not fit scrolls rather than folding. */
+thead th {
+  white-space: nowrap;
 }
