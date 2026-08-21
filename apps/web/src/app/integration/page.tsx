@@ -89,7 +89,7 @@ export default async function IntegrationPage() {
               <tbody>
                 {tools?.map((t) => (
                   <tr key={t.name}>
-                    <td className="mono">{t.name}</td>
+                    <td className="mono col-name">{t.name}</td>
                     <td className="muted">{t.description}</td>
                   </tr>
                 ))}
@@ -142,7 +142,7 @@ export default async function IntegrationPage() {
               <tbody>
                 {runs?.runs.map((r) => (
                   <tr key={r.run_id}>
-                    <td className="mono">{r.run_id}</td>
+                    <td className="mono col-name">{r.run_id}</td>
                     <td>{r.mode}</td>
                     <td className="subtle">{when(r.started_at)}</td>
                     <td className="num">{num(r.inserts)}</td>
@@ -177,7 +177,7 @@ export default async function IntegrationPage() {
           <tbody>
             {FORBIDDEN_HOSTS.map(({ host, why }) => (
               <tr key={host}>
-                <td className="mono">{host}</td>
+                <td className="mono col-name">{host}</td>
                 <td className="muted">{why}</td>
               </tr>
             ))}

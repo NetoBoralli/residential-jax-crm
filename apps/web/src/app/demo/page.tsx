@@ -179,7 +179,7 @@ export default async function DemoPage() {
             <tbody>
               {runs?.runs.map((r) => (
                 <tr key={r.run_id}>
-                  <td className="mono">{r.run_id}</td>
+                  <td className="mono col-name">{r.run_id}</td>
                   <td>{r.mode}</td>
                   <td className="num">{num(r.inserts)}</td>
                   <td className="num">{num(r.updates)}</td>

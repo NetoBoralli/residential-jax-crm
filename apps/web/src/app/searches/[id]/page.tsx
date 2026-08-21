@@ -152,7 +152,7 @@ export default async function SearchDetail({
                       {a.notification_id}
                     </Link>
                   </td>
-                  <td className="mono">{a.run_id}</td>
+                  <td className="mono col-name">{a.run_id}</td>
                   <td className="num">{num(a.changed_in_run)}</td>
                   <td className="num">{num(a.matched_count)}</td>
                   <td className="subtle">{when(a.created_at)}</td>

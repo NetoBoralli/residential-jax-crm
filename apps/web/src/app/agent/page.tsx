@@ -172,7 +172,7 @@ export default async function AgentPage({
               <tbody>
                 {answer.steps.map((s, i) => (
                   <tr key={i} data-testid="agent-step">
-                    <td className="mono">{s.tool}</td>
+                    <td className="mono col-name">{s.tool}</td>
                     <td>{s.summary}</td>
                     <td>
                       {s.detail ? (
