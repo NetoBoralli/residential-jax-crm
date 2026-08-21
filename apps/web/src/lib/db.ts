@@ -50,6 +50,20 @@ function statements(sql: string): string[] {
  */
 export const MIGRATIONS = [
   `ALTER TABLE notifications ADD COLUMN IF NOT EXISTS captured_matches INTEGER`,
+  // Repair, not just prevention. Deleting a saved search used to leave its
+  // alerts behind, and an orphaned alert renders a raw id linking to a 404 —
+  // which is worse than no alert, because the whole value of one is naming the
+  // criteria it matched. deleteSearch now cascades; this clears what it left.
+  `DELETE FROM notification_matches
+    WHERE notification_id IN (
+      SELECT n.notification_id FROM notifications n
+       WHERE NOT EXISTS (
+         SELECT 1 FROM saved_searches s WHERE s.search_id = n.search_id
+       ))`,
+  `DELETE FROM notifications n
+    WHERE NOT EXISTS (
+      SELECT 1 FROM saved_searches s WHERE s.search_id = n.search_id
+    )`,
 ];
 
 async function open(): Promise<DuckDBConnection> {
