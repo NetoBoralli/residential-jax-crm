@@ -1,5 +1,10 @@
 "use client";
 
+// MapLibre ships its own stylesheet and does not work without it. Popups are
+// positioned by that CSS; without it a popup is an unstyled div that lands in
+// the document flow and shoves the page apart the moment anyone clicks a pin.
+// The zoom and attribution controls are unstyled without it too.
+import "maplibre-gl/dist/maplibre-gl.css";
 import { useEffect, useRef, useState } from "react";
 
 function escapeHtml(value: string): string {
@@ -156,7 +161,7 @@ export function ParcelMap({
             popup
               .setLngLat(e.lngLat)
               .setHTML(
-                `<div style="font:13px system-ui;color:#111"><strong>${escapeHtml(props.label)}</strong><br/>` +
+                `<div class="map-popup"><strong>${escapeHtml(props.label)}</strong>` +
                   `<a href="/properties/${encodeURIComponent(props.folio)}">Open ${escapeHtml(props.folio)}</a></div>`,
               )
               .addTo(m);

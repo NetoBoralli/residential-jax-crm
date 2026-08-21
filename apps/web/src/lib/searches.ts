@@ -1,6 +1,6 @@
 import "server-only";
 
-import { all, lit, nextId, one, run } from "./db";
+import { all, lit, nextId, one, run, withTransaction } from "./db";
 import {
   type Criteria,
   columnsFor,
@@ -48,6 +48,16 @@ export async function getSearch(id: string): Promise<SavedSearch | undefined> {
   );
 }
 
+/**
+ * How many criteria sets the workspace will hold.
+ *
+ * Saving is anonymous, and every stored set multiplies the work an alert sweep
+ * does — searches x runs Oracle calls. Thirty rows created in under a second
+ * was enough to make one sweep exhaust the Oracle's rate limit and take the
+ * whole CRM into its degraded state for every visitor.
+ */
+export const MAX_SAVED_SEARCHES = 50;
+
 export async function saveSearch(input: {
   name: string;
   description?: string;
@@ -55,6 +65,15 @@ export async function saveSearch(input: {
   ownerId: string;
   notify?: boolean;
 }): Promise<string> {
+  const [existing] = await all<{ n: number }>(
+    `SELECT count(*) AS n FROM saved_searches`,
+  );
+  if (Number(existing?.n ?? 0) >= MAX_SAVED_SEARCHES) {
+    throw new Error(
+      `This workspace already holds ${MAX_SAVED_SEARCHES} criteria sets, which is the limit. Delete one before saving another.`,
+    );
+  }
+
   const id = await nextId("search");
   await run(`
     INSERT INTO saved_searches
@@ -210,15 +229,17 @@ export async function checkSearchAgainstRun(
     };
   }
 
-  // The alert row and its evidence go in together. Written separately, a
-  // restart between them (a redeploy during a sweep) leaves an alert claiming
-  // 37 matches with 5 rows of evidence — and the idempotency guard above then
-  // makes it permanent, because the repeat sweep sees the alert and stops. The
-  // traceability claim is the whole feature, so it is written atomically.
+  // The alert row and its evidence go in together, on their own connection.
+  //
+  // Written separately, a restart between them leaves an alert claiming 37
+  // matches with 5 rows of evidence — and the idempotency guard above then
+  // makes it permanent. Written in a transaction on the *shared* connection,
+  // it was worse: any unrelated write that interleaved joined this transaction
+  // and was destroyed by its rollback. withTransaction takes a dedicated
+  // connection so neither can happen.
   const notificationId = await nextId("alert");
-  await run(`BEGIN TRANSACTION`);
-  try {
-    await run(`
+  await withTransaction(async (tx) => {
+    await tx.run(`
       INSERT INTO notifications
         (notification_id, search_id, run_id, changes_cid, matched_count,
          captured_matches, changed_in_run, delta_types)
@@ -228,7 +249,7 @@ export async function checkSearchAgainstRun(
     `);
 
     for (const row of match.rows) {
-      await run(`
+      await tx.run(`
         INSERT INTO notification_matches
           (notification_id, folio, delta_type, address, owner_name, market_value)
         VALUES (${lit(notificationId)}, ${lit(row.request_identifier)},
@@ -237,11 +258,7 @@ export async function checkSearchAgainstRun(
         ON CONFLICT DO NOTHING
       `);
     }
-    await run(`COMMIT`);
-  } catch (error) {
-    await run(`ROLLBACK`).catch(() => undefined);
-    throw error;
-  }
+  });
 
   return {
     searchId: search.search_id,
@@ -312,7 +329,10 @@ export async function sweepForMatches(
     .slice(0, opts.maxRuns ?? MAX_RUNS_PER_SWEEP)
     .reverse();
 
-  for (const search of searches) {
+  // Bounded independently of how many criteria sets exist, so a sweep cannot
+  // be made arbitrarily expensive by creating rows.
+  const swept = searches.slice(0, MAX_SAVED_SEARCHES);
+  for (const search of swept) {
     for (const run of candidates) {
       try {
         alerts.push(await checkSearchAgainstRun(search, run.run_id));
@@ -332,7 +352,7 @@ export async function sweepForMatches(
 
   return {
     alerts,
-    watchedSearches: searches.length,
+    watchedSearches: swept.length,
     runsChecked: candidates.length,
     skipped,
     durationMs: Date.now() - started,

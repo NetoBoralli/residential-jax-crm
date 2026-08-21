@@ -1,3 +1,4 @@
+import { csvCell } from "./csv";
 import { all } from "@/lib/db";
 import { queryProperties } from "@/lib/oracle-client";
 import { sqlString } from "@/lib/sql";
@@ -16,20 +17,9 @@ export const maxDuration = 120;
  */
 
 function csv(rows: Array<Record<string, unknown>>, columns: string[]): string {
-  const escape = (v: unknown): string => {
-    if (v === null || v === undefined) return "";
-    let s = String(v);
-    // Owner names come from a public roll and go into a file someone opens in
-    // Excel, where a leading =, +, - or @ makes the cell a formula. But a
-    // leading "-" followed by a digit is a negative number — guarding it
-    // corrupted every longitude in the county into text, which is the one
-    // column a mapping tool needs.
-    if (/^[=+@\t\r]/.test(s) || /^-(?![0-9.])/.test(s)) s = `'${s}`;
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-  };
   return [
     columns.join(","),
-    ...rows.map((r) => columns.map((c) => escape(r[c])).join(",")),
+    ...rows.map((r) => columns.map((c) => csvCell(r[c])).join(",")),
   ].join("\n");
 }
 

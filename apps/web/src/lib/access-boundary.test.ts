@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   AccessBoundaryViolation,
+  FORBIDDEN_HOSTS,
   assertAllowed,
   register,
 } from "../instrumentation";
@@ -14,19 +15,36 @@ import {
  * about what a waterfront property is.
  */
 describe("assertAllowed", () => {
-  const blocked = [
-    "https://ipfs.filebase.io/ipfs/QmXyz/query-table.parquet",
-    "https://s3.filebase.io/elephant-oracle-query-table-duval/x.parquet",
-    "https://api.filebase.io/v1/names/oracle-query-table-duval",
-    "https://floridarevenue.com/property/dataportal/Documents/x.zip",
-    "https://overturemaps-us-west-2.s3.amazonaws.com/release/x.parquet",
-  ];
+  // Derived from the guard, not copied beside it. A hand-maintained fixture
+  // listed five of the six hosts and omitted overturemaps.org — the exact host
+  // whose omission the guard's own comment records as the bug to prevent.
+  for (const { host } of FORBIDDEN_HOSTS) {
+    it(`blocks ${host}`, () => {
+      expect(() => assertAllowed(`https://${host}/x`)).toThrow(
+        AccessBoundaryViolation,
+      );
+    });
 
-  for (const url of blocked) {
-    it(`blocks ${new URL(url).hostname}`, () => {
-      expect(() => assertAllowed(url)).toThrow(AccessBoundaryViolation);
+    it(`blocks ${host} as a fully-qualified name`, () => {
+      // A trailing dot resolves identically in DNS and matched neither the
+      // exact comparison nor the suffix one, so it walked through the guard.
+      expect(() => assertAllowed(`https://${host}./x`)).toThrow(
+        AccessBoundaryViolation,
+      );
+    });
+
+    it(`blocks ${host} regardless of case`, () => {
+      expect(() => assertAllowed(`https://${host.toUpperCase()}/x`)).toThrow(
+        AccessBoundaryViolation,
+      );
     });
   }
+
+  it("blocks a subdomain given as a fully-qualified name", () => {
+    expect(() =>
+      assertAllowed("https://gateway.ipfs.filebase.io./ipfs/Qm"),
+    ).toThrow(AccessBoundaryViolation);
+  });
 
   it("blocks subdomains of a forbidden host", () => {
     expect(() =>

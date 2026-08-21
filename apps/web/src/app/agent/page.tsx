@@ -1,8 +1,9 @@
 import { headers } from "next/headers";
 import Link from "next/link";
 
+import { Answer } from "@/components/answer";
 import { askAgent } from "@/lib/agent";
-import { clientKey, rateLimit } from "@/lib/rate-limit";
+import { clientKey, globalLimit, rateLimit } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 180;
@@ -27,12 +28,20 @@ export default async function AgentPage({
   let error: string | undefined;
 
   if (question) {
-    const limit = rateLimit(clientKey(await headers(), "crm-agent"), {
+    const perClient = rateLimit(clientKey(await headers(), "crm-agent"), {
       limit: 10,
       windowMs: 60_000,
     });
+    // Per-client first so a normal user gets the specific message, then the
+    // process-wide ceiling, which is the one that actually bounds spend when
+    // the caller controls its own identity.
+    const limit = perClient.allowed
+      ? globalLimit("crm-agent", { limit: 40, windowMs: 60_000 })
+      : perClient;
     if (!limit.allowed) {
-      error = `Too many questions from this address. The agent is limited to 10 per minute because each call spends model tokens; try again in ${limit.retryAfterSeconds}s.`;
+      error = perClient.allowed
+        ? `The agent is busy — it is answering as many questions as it can right now. Each call spends model tokens, so there is a ceiling across all users. Try again in ${limit.retryAfterSeconds}s.`
+        : `Too many questions from this address. The agent is limited to 10 per minute because each call spends model tokens; try again in ${limit.retryAfterSeconds}s.`;
     } else {
       try {
         answer = await askAgent(question);
@@ -112,8 +121,9 @@ export default async function AgentPage({
           style={{ marginTop: 24, borderColor: "var(--border-strong)" }}
           data-testid="agent-error"
         >
-          <h3>
-            <span className="badge badge-warn">Could not answer</span>
+          <h3 style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            Could not answer
+            <span className="badge badge-warn">error</span>
           </h3>
           <pre
             className="mono subtle"
@@ -132,11 +142,14 @@ export default async function AgentPage({
             data-testid="agent-answer"
           >
             <h2 style={{ marginTop: 0 }}>Answer</h2>
-            <div
-              style={{ whiteSpace: "pre-wrap", marginTop: 10, lineHeight: 1.6 }}
-              data-testid="agent-answer-text"
-            >
-              {answer.text}
+            <div style={{ marginTop: 10 }}>
+              {answer.text ? (
+                <Answer text={answer.text} />
+              ) : (
+                <p className="muted" data-testid="agent-answer-text">
+                  {answer.incomplete}
+                </p>
+              )}
             </div>
           </section>
 

@@ -103,8 +103,10 @@ describe("match scoring", () => {
     });
 
     // Both satisfy every criterion; only their magnitude differs. A pass/fail
-    // score gave both 100 and ranked nothing.
-    expect(weak.score).toBeGreaterThan(0);
+    // score gave both 100 and ranked nothing — and a raw strength share gave a
+    // row sitting exactly on the thresholds a 0, which reads as "no match" for
+    // something that matched.
+    expect(weak.score).toBeGreaterThanOrEqual(50);
     expect(strong.score).toBeGreaterThan(weak.score + 40);
     // A property well past every threshold should reach the top of the scale,
     // not stall in the forties — otherwise the badge reads as a poor match for
@@ -126,6 +128,21 @@ describe("match scoring", () => {
     );
     expect(s.rationale.some((r) => r.includes("roof"))).toBe(true);
     expect(s.rationale.some((r) => r.includes("m from"))).toBe(true);
+  });
+
+  it("never scores a matching property below the qualifying baseline", async () => {
+    const { score, BASELINE } = await import("./criteria");
+    // Exactly on every threshold: the weakest possible match, but a match.
+    const atThreshold = score(
+      { roofAgeMin: 15, tenureYearsMin: 10, portfolioMin: 2 },
+      {
+        roof_age_years: 15,
+        years_since_last_sale: 10,
+        owner_portfolio_size: 2,
+      },
+    );
+    expect(atThreshold.score).toBe(BASELINE);
+    expect(atThreshold.rationale.length).toBe(3);
   });
 
   it("scores nothing when no criteria were supplied", async () => {

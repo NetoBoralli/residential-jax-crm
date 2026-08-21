@@ -104,22 +104,49 @@ export async function convertToOpportunity(input: {
   const existing = await getOpportunityByFolio(input.folio);
   if (existing) return existing.opportunity_id;
 
+  // The UNIQUE constraint on folio decides, not the read above.
+  //
+  // The same parcel can appear under two alerts, each with its own Track
+  // button, and the button is a plain form submit. Two submissions both saw no
+  // existing row and both inserted; the loser threw a constraint error inside a
+  // server action, so the user got the error boundary for a deal that had in
+  // fact been created. ON CONFLICT makes the loser a no-op and the re-read
+  // returns whichever row won.
   const id = await nextId("opp");
   await run(`
     INSERT INTO opportunities
       (opportunity_id, folio, address, owner_name, stage, match_score,
        match_rationale, source_search_id, source_run_id, assigned_to)
     VALUES (${lit(id)}, ${lit(input.folio)}, ${lit(input.address ?? null)},
-            ${lit(input.ownerName ?? null)}, 'Identified', ${lit(input.score ?? null)},
+            ${lit(input.ownerName ?? null)}, 'Identified', ${lit(clampScore(input.score))},
             ${lit(input.rationale?.join(" · ") ?? null)}, ${lit(input.searchId ?? null)},
             ${lit(input.runId ?? null)}, ${lit(input.assignedTo ?? null)})
+    ON CONFLICT (folio) DO NOTHING
   `);
+
+  const created = await getOpportunityByFolio(input.folio);
+  if (!created)
+    throw new Error(`Could not open an opportunity for ${input.folio}.`);
+  if (created.opportunity_id !== id) return created.opportunity_id;
+
   await run(`
     INSERT INTO stage_history (opportunity_id, from_stage, to_stage, changed_by, note)
     VALUES (${lit(id)}, NULL, 'Identified', ${lit(input.assignedTo ?? null)},
             ${lit(input.runId ? `Created from pipeline run ${input.runId}` : "Created from search results")})
   `);
   return id;
+}
+
+/**
+ * A score is a signal strength between 0 and 100.
+ *
+ * The column had no CHECK and the action passed a form value straight through,
+ * so a crafted post could store 9999 and outrank every real deal in a list
+ * ordered by match_score.
+ */
+function clampScore(score: number | undefined): number | null {
+  if (score === undefined || !Number.isFinite(score)) return null;
+  return Math.max(0, Math.min(100, Math.round(score)));
 }
 
 export async function advanceStage(input: {

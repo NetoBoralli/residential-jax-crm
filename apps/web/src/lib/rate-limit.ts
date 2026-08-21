@@ -61,6 +61,45 @@ export function rateLimit(
  * determined attacker, who would need authentication to stop properly.
  */
 export function clientKey(headers: Headers, scope: string): string {
-  const forwarded = headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  return `${scope}:${forwarded || headers.get("x-real-ip") || "unknown"}`;
+  // The LAST entry, not the first.
+  //
+  // `X-Forwarded-For` grows left-to-right: a caller can send whatever prefix it
+  // likes and the edge appends the address it actually saw. Reading entry [0]
+  // therefore read a value the caller chose, so an attacker partitioned the
+  // limiter into unlimited buckets just by varying a header. The rightmost
+  // entry is the one Railway added.
+  const chain = headers
+    .get("x-forwarded-for")
+    ?.split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+  const edge = chain?.[chain.length - 1];
+  return `${scope}:${edge || headers.get("x-real-ip") || "unknown"}`;
+}
+
+/**
+ * A ceiling no header can partition.
+ *
+ * Per-client limiting is defeated by anything that controls its own identity,
+ * so an endpoint that spends money needs a bound on the *total* as well. This
+ * is deliberately crude — one counter, one window, whole process.
+ */
+const globalWindows = new Map<string, { count: number; resetAt: number }>();
+
+export function globalLimit(
+  scope: string,
+  opts: { limit: number; windowMs: number },
+): RateLimitResult {
+  const now = Date.now();
+  const existing = globalWindows.get(scope);
+  if (!existing || existing.resetAt <= now) {
+    globalWindows.set(scope, { count: 1, resetAt: now + opts.windowMs });
+    return { allowed: true, remaining: opts.limit - 1, retryAfterSeconds: 0 };
+  }
+  existing.count += 1;
+  return {
+    allowed: existing.count <= opts.limit,
+    remaining: Math.max(0, opts.limit - existing.count),
+    retryAfterSeconds: Math.ceil((existing.resetAt - now) / 1000),
+  };
 }

@@ -113,8 +113,9 @@ export default async function NotificationsPage({
           style={{ marginTop: 18, borderColor: "var(--border-strong)" }}
           data-testid="sweep-error"
         >
-          <h3>
-            <span className="badge badge-warn">Check did not run</span>
+          <h3 style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            Check did not run
+            <span className="badge badge-warn">upstream</span>
           </h3>
           <p className="muted" style={{ marginTop: 8 }}>
             The Duval Oracle could not be reached, so nothing was checked

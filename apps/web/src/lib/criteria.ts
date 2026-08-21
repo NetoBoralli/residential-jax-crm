@@ -373,8 +373,23 @@ export function score(c: Criteria, row: Record<string, unknown>): Scored {
     const strength = f.strength ? f.strength(row) : 1;
     earned += f.weight * Math.max(0, Math.min(1, strength));
   }
-  return { score: Math.round((earned / total) * 100), rationale };
+
+  // Scaled so that meeting every criterion is the floor, not zero.
+  //
+  // A property sitting exactly on every threshold has no strength *above* the
+  // bar, which is a raw share of 0 — and "signal 0/100" reads as "does not
+  // match", which is impossible here: the filter is a hard AND, so everything
+  // in a result set matches. BASELINE is what qualifying is worth; the rest is
+  // how far past the thresholds it sits.
+  const share = total === 0 ? 0 : earned / total;
+  return {
+    score: Math.round(BASELINE + (100 - BASELINE) * share),
+    rationale,
+  };
 }
+
+/** What simply qualifying is worth. Everything above it is margin. */
+export const BASELINE = 50;
 
 /** Human-readable summary of a criteria set, for lists and notifications. */
 export function describe(c: Criteria): string {
@@ -387,14 +402,25 @@ export function describe(c: Criteria): string {
 export function criteriaFromParams(
   params: Record<string, string | string[] | undefined>,
 ): Criteria {
-  const num = (k: string): number | undefined => {
-    const raw = params[k];
-    const v = Number(Array.isArray(raw) ? raw[0] : raw);
-    return Number.isFinite(v) ? v : undefined;
-  };
   const raw = (k: string): string | undefined => {
     const v = params[k];
     return Array.isArray(v) ? v[0] : v;
+  };
+  // An empty string is an absent value, not zero.
+  //
+  // The filter form is method="get", so a browser submits every named control
+  // including the ones the user left blank: `?tenure=10&roof=&valueMin=&…`.
+  // `Number("")` is 0 and `Number.isFinite(0)` is true, so every untouched
+  // field became a real criterion — `market_value >= 0 AND market_value <= 0`,
+  // `dist_to_transit_m <= 0` — and every search made through the UI returned
+  // nothing. Hand-built URLs carrying only the intended parameters worked,
+  // which is why this survived: it was never exercised the way a browser
+  // submits it.
+  const num = (k: string): number | undefined => {
+    const value = raw(k);
+    if (value === undefined || value.trim() === "") return undefined;
+    const n = Number(value);
+    return Number.isFinite(n) ? n : undefined;
   };
   /** "any" is the select's own "no preference" option, not a value. */
   const str = (k: string): string | undefined => {

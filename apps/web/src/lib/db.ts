@@ -18,6 +18,7 @@ const DATA_DIR = process.env["CRM_DATA_DIR"] ?? "/data";
 const DB_FILE = path.join(DATA_DIR, "jax-crm.duckdb");
 
 let connection: DuckDBConnection | undefined;
+let engine: DuckDBInstance | undefined;
 let opening: Promise<DuckDBConnection> | undefined;
 
 /**
@@ -80,12 +81,31 @@ export const MIGRATIONS = [
  * are moved aside rather than deleted, so nothing is destroyed and the failure
  * can still be examined, and the app comes back up instead of staying down.
  */
+let quarantinedThisProcess = false;
+
 async function openOrRecover(): Promise<DuckDBConnection> {
   fs.mkdirSync(DATA_DIR, { recursive: true });
+
+  // Only opening the file is recoverable.
+  //
+  // The first version wrapped schema, migrations and seeding in this try too —
+  // so a migration that was merely *wrong* (DuckDB rejects adding a NOT NULL
+  // column to a populated table) renamed a perfectly healthy database aside
+  // and started an empty one. Worse, `db()` clears `opening` in its finally,
+  // so every subsequent request retried and quarantined again, leaving a pile
+  // of `.corrupt-*` files and leaked instances. A bad migration must take the
+  // deploy down loudly with the store intact; that is a far better failure
+  // than silently replacing a team's workspace.
+  let instance: DuckDBInstance;
   try {
-    return await openAt(DB_FILE);
+    instance = await DuckDBInstance.create(DB_FILE);
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
+    // Once per process. Retrying the quarantine on every request produced a
+    // new `.corrupt-*` file each time.
+    if (quarantinedThisProcess) throw error;
+    quarantinedThisProcess = true;
+
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
     for (const suffix of ["", ".wal"]) {
       const from = `${DB_FILE}${suffix}`;
@@ -99,12 +119,14 @@ async function openOrRecover(): Promise<DuckDBConnection> {
         `Saved criteria reseed automatically; re-run /api/alerts/check to recompute alerts. ` +
         `Opportunities and outreach recorded in the damaged file are not recovered.`,
     );
-    return openAt(DB_FILE);
+    instance = await DuckDBInstance.create(DB_FILE);
   }
+
+  // Outside the recovery try on purpose — see above.
+  return prepare(instance);
 }
 
-async function openAt(file: string): Promise<DuckDBConnection> {
-  const instance = await DuckDBInstance.create(file);
+async function prepare(instance: DuckDBInstance): Promise<DuckDBConnection> {
   const conn = await instance.connect();
 
   for (const stmt of statements(readSchema())) await conn.run(stmt);
@@ -112,6 +134,7 @@ async function openAt(file: string): Promise<DuckDBConnection> {
 
   await seed(conn);
   closeOnShutdown(instance, conn);
+  engine = instance;
   return conn;
 }
 
@@ -152,6 +175,57 @@ export async function db(): Promise<DuckDBConnection> {
     return await opening;
   } finally {
     opening = undefined;
+  }
+}
+
+/**
+ * Run a unit of work in a transaction, on its own connection.
+ *
+ * DuckDB scopes transactions to a connection, and this app shares one
+ * connection across every request. Opening a transaction on it meant an
+ * unrelated write that merely *interleaved* — a note being added while an alert
+ * sweep ran — joined that transaction and was destroyed by its ROLLBACK, after
+ * the user had already been told it saved. Two overlapping sweeps were worse
+ * still: the second `BEGIN` throws "cannot start a transaction within a
+ * transaction", and its rollback aborts the first.
+ *
+ * Connections are cheap and share the instance's catalog, so a dedicated one
+ * per transaction isolates the unit of work without a second database.
+ */
+export async function withTransaction<T>(
+  work: (tx: {
+    run: (sql: string) => Promise<void>;
+    all: <R = Record<string, unknown>>(sql: string) => Promise<R[]>;
+  }) => Promise<T>,
+): Promise<T> {
+  await db();
+  if (!engine) throw new Error("The CRM store is not initialised.");
+
+  const conn = await engine.connect();
+  const tx = {
+    run: async (sql: string) => {
+      await conn.run(sql);
+    },
+    all: async <R = Record<string, unknown>>(sql: string): Promise<R[]> => {
+      const reader = await conn.runAndReadAll(sql);
+      return normalise(reader.getRowObjects()) as R[];
+    },
+  };
+
+  try {
+    await conn.run("BEGIN TRANSACTION");
+    const result = await work(tx);
+    await conn.run("COMMIT");
+    return result;
+  } catch (error) {
+    await conn.run("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    try {
+      conn.closeSync();
+    } catch {
+      // Already closed, or closing raced the rollback.
+    }
   }
 }
 

@@ -183,8 +183,8 @@ export default async function SearchDetail({
                 </>
               ) : null}
             </p>
-            <div className="split" style={{ marginTop: 14 }}>
-              <ParcelMap points={points} height={380} />
+            <div className="stack" style={{ marginTop: 14 }}>
+              <ParcelMap points={points} height={460} />
               <div style={{ overflowX: "auto" }}>
                 <table>
                   <thead>

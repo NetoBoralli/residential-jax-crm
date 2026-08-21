@@ -269,8 +269,8 @@ export default async function PropertiesPage({
             ) : null}
           </div>
 
-          <div className="split" style={{ marginTop: 18 }}>
-            <ParcelMap points={points} />
+          <div className="stack" style={{ marginTop: 18 }}>
+            <ParcelMap points={points} height={520} />
             <div style={{ overflowX: "auto" }}>
               <table data-testid="results-table">
                 <thead>

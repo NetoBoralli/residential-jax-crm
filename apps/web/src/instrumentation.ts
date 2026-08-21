@@ -61,7 +61,10 @@ export class AccessBoundaryViolation extends Error {
 export function assertAllowed(url: string): void {
   let host: string;
   try {
-    host = new URL(url).hostname.toLowerCase();
+    // The trailing dot is stripped: `ipfs.filebase.io.` is a fully-qualified
+    // name that DNS resolves identically, and it matched neither the exact
+    // comparison nor the suffix one — so it walked straight through the guard.
+    host = new URL(url).hostname.toLowerCase().replace(/\.$/, "");
   } catch {
     return; // Relative URLs never leave the app.
   }

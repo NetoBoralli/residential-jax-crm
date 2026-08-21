@@ -15,7 +15,7 @@
 
   --fg: #e6eaf2;
   --fg-muted: #9aa5b8;
-  --fg-subtle: #6b7689;
+  --fg-subtle: #8b95a5;
 
   --accent: #f0883e;
   --accent-fg: #0b0e14;
@@ -24,6 +24,8 @@
   --warning: #d29922;
   --info: #a371f7;
 
+  /* MapLibre's control icons are dark glyphs drawn for a light chrome. */
+  --icon-invert: 1;
   --radius: 8px;
   --radius-lg: 12px;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
@@ -41,13 +43,14 @@
     --border-strong: #b9c1cc;
     --fg: #1c2128;
     --fg-muted: #57606a;
-    --fg-subtle: #848d97;
+    --fg-subtle: #6e7681;
     --accent: #bc4c00;
     --accent-fg: #ffffff;
     --positive: #1a7f37;
     --negative: #cf222e;
     --warning: #9a6700;
     --info: #8250df;
+    --icon-invert: 0;
   }
 }
 
@@ -121,7 +124,12 @@ h3 {
   display: flex;
   align-items: center;
   gap: 24px;
-  height: 56px;
+  /* min-height, not height: the nav wraps below ~1140px, and with a fixed
+     height the second row rendered outside the header box — on top of the page
+     heading, with no background behind it. */
+  min-height: 56px;
+  padding: 8px 0;
+  flex-wrap: wrap;
 }
 
 .brand {
@@ -159,6 +167,19 @@ main {
   padding: 32px 0 80px;
 }
 
+a.card {
+  text-decoration: none;
+  color: inherit;
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease;
+}
+a.card:hover {
+  text-decoration: none;
+  border-color: var(--border-strong);
+  background: color-mix(in srgb, var(--bg-raised) 92%, var(--fg));
+}
+
 .card {
   background: var(--bg-raised);
   border: 1px solid var(--border);
@@ -166,12 +187,18 @@ main {
   padding: 20px;
 }
 
+/* Columns. This rule shipped without `grid-template-columns`, so every card
+   group in the product — stat cards, CTAs, stage summary, coverage sections —
+   rendered as one full-width card per row. A `.grid-3` helper existed to fix
+   it and was applied nowhere. */
 .grid {
   display: grid;
   gap: 16px;
-}
-.grid-3 {
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+/* For groups that should stay wide — two dense cards rather than four narrow. */
+.grid-wide {
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
 }
 
 .stat-value {
@@ -190,9 +217,25 @@ main {
 .muted {
   color: var(--fg-muted);
 }
+/* Applied to the intro paragraph of every page, and previously undefined — so
+   every page subtitle rendered as full-strength body text at the full shell
+   width, with no tonal step down from the h1 above it. */
+.lede {
+  color: var(--fg-muted);
+  font-size: 1.05rem;
+  line-height: 1.6;
+  max-width: 72ch;
+  margin: 8px 0 0;
+}
+
 .subtle {
   color: var(--fg-subtle);
   font-size: 0.85rem;
+}
+/* `.mono` sets a relative size and `.subtle` an absolute one; declared later,
+   subtle won, so every `mono subtle` string ignored mono's sizing. */
+.mono.subtle {
+  font-size: 0.8rem;
 }
 
 table {
@@ -219,18 +262,29 @@ th.num {
   font-variant-numeric: tabular-nums;
 }
 
+/* A table pinned to 100% inside an overflow wrapper compresses to min-content
+   instead of scrolling, so a mid-width window gets nine-line rows rather than
+   a scrollbar. */
+.table-scroll table {
+  min-width: 860px;
+}
 .table-scroll {
   overflow-x: auto;
 }
 
 .badge {
-  display: inline-block;
-  padding: 2px 8px;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
   border-radius: 999px;
   font-size: 0.75rem;
+  line-height: 1.5;
   font-weight: 550;
+  white-space: nowrap;
   border: 1px solid var(--border-strong);
   color: var(--fg-muted);
+  /* Sits on the text baseline rather than dropping below it when inline. */
+  vertical-align: middle;
 }
 .badge-ok {
   color: var(--positive);
@@ -249,29 +303,83 @@ th.num {
   border-color: color-mix(in srgb, var(--negative) 40%, transparent);
 }
 .badge-muted {
-  color: var(--fg-subtle);
+  /* Softening the border to fix an over-strong outline overshot into a badge
+     that was barely visible — and it carries the "paused" state, which a user
+     needs to notice. */
+  color: var(--fg-muted);
+  border-color: var(--border-strong);
 }
 
+/* inline-flex, not inline-block: `.btn` is used on both <a> and <button>, and
+   an inline anchor ignores vertical padding for line-box purposes — so a link
+   and a real button sitting next to each other rendered at different heights.
+   An explicit line-height and min-height make the two identical. */
 .btn {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
   background: var(--accent);
   color: var(--accent-fg);
   border: 1px solid transparent;
   border-radius: var(--radius);
-  padding: 7px 14px;
+  padding: 6px 14px;
   font-size: 0.9rem;
+  line-height: 1.2;
   font-weight: 550;
+  white-space: nowrap;
   cursor: pointer;
   font-family: inherit;
+  text-align: center;
+}
+/* One ring for everything focusable. Only `.btn` had one, on an app whose
+   stated constraint is that it must be drivable by keyboard. */
+.btn:focus-visible,
+a.card:focus-visible,
+.nav a:focus-visible,
+td a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius);
+}
+/* Table rows carry one action each; a full-size button makes every row tall. */
+td .btn {
+  min-height: 28px;
+  padding: 3px 10px;
+  font-size: 0.8rem;
 }
 .btn:hover {
   text-decoration: none;
   filter: brightness(1.08);
 }
+/* Was `background: transparent` with a 1.46:1 border — below the 3:1 WCAG
+   needs for a control boundary, so a hundred "Open" buttons in a results table
+   read as a hundred unlinked words. It now has a surface. */
 .btn-secondary {
-  background: transparent;
+  background: var(--bg-sunken);
   color: var(--fg);
   border-color: var(--border-strong);
+}
+.btn-secondary:hover {
+  background: var(--bg-raised);
+  border-color: var(--fg-subtle);
+  filter: none;
+}
+
+/* Destructive actions must not look like the navigation beside them. */
+.btn-danger {
+  background: transparent;
+  color: var(--negative);
+  border-color: color-mix(in srgb, var(--negative) 45%, transparent);
+}
+.btn-danger:hover {
+  background: color-mix(in srgb, var(--negative) 12%, transparent);
+  border-color: var(--negative);
+  filter: none;
 }
 
 /* ---- CRM-specific ---- */
@@ -292,7 +400,7 @@ th.num {
    list, so nothing here is reachable only by mouse. */
 .map-wrap {
   position: relative;
-  height: 460px;
+  height: 520px;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   overflow: hidden;
@@ -312,6 +420,20 @@ th.num {
   text-align: center;
 }
 
+/* Stacked, not side by side.
+   The map and the results table were columns of one grid, which squeezed both:
+   the map became a wide letterbox strip and the table lost the room its ten
+   columns need. Full width each, map first, reads far better — and it is the
+   same layout at every breakpoint, so there is no narrow window where the two
+   fight each other. */
+.stack {
+  display: grid;
+  gap: 22px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* Kept for the opportunity detail page, where two genuinely independent
+   columns of forms and history do belong beside each other. */
 .split {
   display: grid;
   gap: 20px;
@@ -335,8 +457,19 @@ th.num {
   color: var(--fg-muted);
   margin-bottom: 4px;
 }
+/* A primary action terminates a form; it is not a field. Placed inside the
+   `.filters` grid it landed alone on a second row, left-aligned in a third of
+   the width. */
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
 .filters select,
 .filters input {
+  min-height: 34px;
   width: 100%;
   background: var(--bg-sunken);
   color: var(--fg);
@@ -352,6 +485,26 @@ th.num {
   gap: 8px;
   flex-wrap: wrap;
   align-items: center;
+}
+/* Actions are usually wrapped in a <form> so they post to a server action. A
+   form is a block element, so as a flex child it stretched and pushed its
+   button out of line with the plain links beside it. */
+.row-actions form {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+.row-actions select,
+.row-actions input {
+  min-height: 34px;
+  background: var(--bg-sunken);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 6px 9px;
+  font-family: inherit;
+  font-size: 0.9rem;
 }
 
 .timeline {
@@ -373,4 +526,174 @@ th.num {
   height: 8px;
   border-radius: 50%;
   background: var(--accent);
+}
+
+/* ---- Map chrome ----
+   MapLibre's own stylesheet is imported by the map component; these rules
+   only re-skin it to the app's tokens. Its defaults are a white popup and
+   white control buttons, which look like a foreign object dropped onto a dark
+   page. */
+
+.maplibregl-popup-content {
+  background: var(--bg-raised);
+  color: var(--fg);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 28%);
+}
+.maplibregl-popup-tip {
+  border-top-color: var(--border-strong);
+  border-bottom-color: var(--border-strong);
+}
+.maplibregl-popup-close-button {
+  color: var(--fg-muted);
+  font-size: 1.1rem;
+  padding: 2px 7px;
+  background: transparent;
+}
+.maplibregl-popup-close-button:hover {
+  background: transparent;
+  color: var(--fg);
+}
+
+.map-popup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  padding-right: 10px;
+}
+
+.maplibregl-ctrl-group {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: none;
+}
+.maplibregl-ctrl-group button + button {
+  border-top-color: var(--border);
+}
+.maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+  filter: invert(var(--icon-invert, 0));
+}
+.maplibregl-ctrl-attrib {
+  background: color-mix(in srgb, var(--bg-raised) 88%, transparent);
+  color: var(--fg-subtle);
+  border-radius: var(--radius) 0 0 0;
+}
+.maplibregl-ctrl-attrib a {
+  color: var(--fg-muted);
+}
+
+/* One rule for every free-text field. Three call sites hand-rolled the same
+   seven properties inline, hardcoding the radius the token already defines. */
+.field {
+  width: 100%;
+  background: var(--bg-sunken);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 9px 11px;
+  font-family: inherit;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+.field:hover {
+  border-color: var(--border-strong);
+}
+
+/* Deep-linked sections parked under the sticky header. */
+section[id] {
+  scroll-margin-top: 76px;
+}
+
+/* Long questions rendered as centred nowrap pills, truncated mid-word. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  text-align: left;
+  white-space: normal;
+  max-width: 100%;
+  line-height: 1.35;
+  padding: 8px 12px;
+}
+
+/* Long snake_case identifiers and CIDs have no break opportunities. */
+.card {
+  overflow-wrap: anywhere;
+}
+
+tbody tr:last-child td {
+  border-bottom: none;
+}
+thead th {
+  background: var(--bg-sunken);
+  border-bottom: 1px solid var(--border-strong);
+}
+
+/* The agent's answer is the page's primary content, not supporting text. */
+.answer {
+  color: var(--fg);
+  line-height: 1.65;
+}
+.answer p {
+  margin: 0 0 12px;
+}
+.answer p:last-child {
+  margin-bottom: 0;
+}
+.answer-list {
+  margin: 0 0 12px;
+  padding-left: 20px;
+}
+.answer-list li {
+  margin-bottom: 6px;
+}
+.answer code {
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+/* A pending state that reads as work in progress rather than a stall. */
+.skeleton-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 18px;
+}
+.skeleton-bars span {
+  display: block;
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    var(--bg-sunken) 0%,
+    var(--border) 50%,
+    var(--bg-sunken) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+.skeleton-bars span:nth-child(2) {
+  width: 88%;
+}
+.skeleton-bars span:nth-child(3) {
+  width: 64%;
+}
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-bars span {
+    animation: none;
+  }
 }

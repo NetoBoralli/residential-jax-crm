@@ -31,8 +31,20 @@ import { deleteSearch, saveSearch, sweepForMatches } from "@/lib/searches";
  * submit a form, and cannot drag a card between columns.
  */
 
-const str = (fd: FormData, key: string): string =>
-  String(fd.get(key) ?? "").trim();
+/**
+ * Free text, bounded.
+ *
+ * Every mutation here is anonymous and unauthenticated by design. Without a
+ * length cap one POST stored a 900 KB note, and a few thousand of those fill
+ * the volume the store lives on — at which point no recovery path helps,
+ * because the file is not corrupt, the disk is full.
+ */
+const MAX_TEXT = 4000;
+
+const str = (fd: FormData, key: string): string => {
+  const value = String(fd.get(key) ?? "").trim();
+  return value.length > MAX_TEXT ? value.slice(0, MAX_TEXT) : value;
+};
 
 /**
  * A field the form submitted, distinguishing "left blank" from "not submitted".
