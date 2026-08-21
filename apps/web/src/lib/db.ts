@@ -37,12 +37,28 @@ function statements(sql: string): string[] {
     );
 }
 
+/**
+ * Changes to tables that already exist on a volume.
+ *
+ * `CREATE TABLE IF NOT EXISTS` in schema.sql creates a store from nothing; it
+ * does nothing at all to one that is already there. A column added to
+ * schema.sql therefore reaches a fresh database and never reaches the deployed
+ * volume — which is how `captured_matches` shipped and took /notifications down
+ * with a binder error while every local run passed.
+ *
+ * Each statement must be safe to run on every boot, on any age of database.
+ */
+export const MIGRATIONS = [
+  `ALTER TABLE notifications ADD COLUMN IF NOT EXISTS captured_matches INTEGER`,
+];
+
 async function open(): Promise<DuckDBConnection> {
   fs.mkdirSync(DATA_DIR, { recursive: true });
   const instance = await DuckDBInstance.create(DB_FILE);
   const conn = await instance.connect();
 
   for (const stmt of statements(readSchema())) await conn.run(stmt);
+  for (const stmt of MIGRATIONS) await conn.run(stmt);
 
   await seed(conn);
   return conn;
