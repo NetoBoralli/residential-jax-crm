@@ -1,5 +1,4 @@
 import { headers } from "next/headers";
-import Link from "next/link";
 
 import { Answer } from "@/components/answer";
 import { askAgent } from "@/lib/agent";
@@ -103,14 +102,21 @@ export default async function AgentPage({
         <h3>Try one of these</h3>
         <div className="row-actions" style={{ marginTop: 10 }}>
           {EXAMPLES.map((e) => (
-            <Link
+            // A plain anchor, not <Link>. A client transition to the same
+            // route with only the query changed serves the cached segment, so
+            // clicking a suggestion appeared to do nothing. A full navigation
+            // always re-renders — and on a route that takes 10–40 seconds it
+            // also gives the browser's own loading indicator, which is better
+            // feedback than none.
+            <a
               key={e}
-              className="btn btn-secondary"
+              className="btn btn-secondary chip"
               href={`/agent?q=${encodeURIComponent(e)}`}
               data-testid="agent-example"
+              title={e}
             >
-              {e.length > 62 ? `${e.slice(0, 62)}…` : e}
-            </Link>
+              {e}
+            </a>
           ))}
         </div>
       </section>

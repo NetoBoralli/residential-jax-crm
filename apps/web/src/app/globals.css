@@ -802,3 +802,22 @@ thead th {
     transition: none;
   }
 }
+
+.answer-heading {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 18px 0 8px;
+}
+.answer-heading:first-child {
+  margin-top: 0;
+}
+.answer .table-scroll {
+  margin: 12px 0;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.answer table {
+  margin: 0;
+  font-size: 0.85rem;
+}

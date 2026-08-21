@@ -4,9 +4,10 @@ import os from "node:os";
 import path from "node:path";
 
 export default defineConfig({
+  esbuild: { jsx: "automatic" },
   test: {
     environment: "node",
-    include: ["src/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
     // The CRM store is a single-writer DuckDB file, so two test files opening
     // it in parallel workers fight over the same lock. Running files in series
     // matches how the app actually uses the store.
